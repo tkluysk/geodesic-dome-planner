@@ -18,6 +18,7 @@
     --strut-d:    #a8862c;   /* ochre — base risers */
     --strut-e:    #2b7fb8;   /* steel blue — spread crown ring */
     --strut-f:    #b0447a;   /* magenta — crown feeds */
+    --strut-g:    #4a5568;   /* slate — hand-moved hubs */
     --critical:   #b83c26;
     --accent:     var(--strut-a);
     --shadow:     0 1px 2px rgba(10,37,64,.08), 0 8px 24px rgba(10,37,64,.06);
@@ -46,6 +47,7 @@
       --strut-d:   #d4b45a;
       --strut-e:   #55a8dd;
       --strut-f:   #dd7aac;
+      --strut-g:   #9aa5b5;
       --critical:  #e06a4f;
       --shadow:    0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
     }
@@ -66,6 +68,7 @@
     --strut-d:   #d4b45a;
     --strut-e:   #55a8dd;
     --strut-f:   #dd7aac;
+    --strut-g:   #9aa5b5;
     --critical:  #e06a4f;
     --shadow:    0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
   }
@@ -165,6 +168,7 @@
   .swatch.d { background: var(--strut-d); }
   .swatch.e { background: var(--strut-e); }
   .swatch.f { background: var(--strut-f); }
+  .swatch.g { background: var(--strut-g); }
   .swatch.dashed {
     height: 0; border-top: 2px dashed var(--text-dim); width: 22px;
   }
@@ -188,6 +192,31 @@
     font-family: var(--f-mono); font-size: .7rem; color: var(--text-dim);
     letter-spacing: .06em; margin-left: 3px;
   }
+  /* ---- vertex editor ---- */
+  .vertex-panel {
+    border-top: 1px solid var(--line-soft);
+    padding: 12px 16px;
+    background: var(--paper-2);
+  }
+  .vp-empty { font-size: .8rem; color: var(--text-dim); }
+  .vp-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text);
+    margin-bottom: 10px;
+  }
+  .vp-ctl {
+    display: grid; grid-template-columns: 92px 1fr 58px;
+    align-items: center; gap: 10px; padding: 3px 0;
+    font-size: .82rem;
+  }
+  .vp-ctl input[type="range"] { width: 100%; }
+  .vp-ctl output {
+    font-family: var(--f-mono); font-size: .8rem; text-align: right;
+    font-variant-numeric: tabular-nums; color: var(--text);
+  }
+  .vp-note { font-size: .76rem; color: var(--text-dim); margin: 8px 0 0; }
+
   .linkbtn {
     background: none; border: none; padding: 0; cursor: pointer;
     font: inherit; color: var(--strut-b); text-decoration: underline;
@@ -311,6 +340,7 @@
   table.cutlist .dot.d { background: var(--strut-d); }
   table.cutlist .dot.e { background: var(--strut-e); }
   table.cutlist .dot.f { background: var(--strut-f); }
+  table.cutlist .dot.g { background: var(--strut-g); }
   table.cutlist tfoot td {
     border-top: 2px solid var(--ink); font-weight: 700; color: var(--text);
     padding-top: 12px;
@@ -376,6 +406,26 @@
         <span class="legend-item"><span class="swatch dashed"></span> far side</span>
         <button type="button" id="spinBtn" class="theme-toggle" style="margin-left:auto">Pause spin</button>
       </div>
+      <div class="vertex-panel" id="vertexPanel">
+        <div class="vp-empty" id="vpEmpty">Click a hub in the model to nudge it.</div>
+        <div class="vp-body" id="vpBody" hidden>
+          <div class="vp-head">
+            <span id="vpTitle">Hub</span>
+            <button type="button" id="vpClear" class="linkbtn">Reset hub</button>
+          </div>
+          <label class="vp-ctl">
+            <span>Radial <span class="unit">mm</span></span>
+            <input type="range" id="vpRadial" min="-600" max="600" step="5" value="0" />
+            <output id="vpRadialOut">0</output>
+          </label>
+          <label class="vp-ctl">
+            <span>Lift <span class="unit">mm</span></span>
+            <input type="range" id="vpLift" min="-600" max="600" step="5" value="0" />
+            <output id="vpLiftOut">0</output>
+          </label>
+          <p class="vp-note" id="vpNote"></p>
+        </div>
+      </div>
     </section>
 
     <!-- CONTROLS + OUTPUT -->
@@ -413,9 +463,12 @@
           <p class="hint" id="crownHint">Pushes the five crown hubs outward, flattening the cap. 100% is the true sphere.</p>
         </div>
         <div class="field">
-          <label for="height">Apex height <span class="unit">mm</span></label>
-          <input type="number" id="heightIn" min="200" step="50" value="1700" />
-          <p class="hint" id="heightHint">Floor to the top hub. Raising or lowering it stretches the dome vertically.</p>
+          <label for="heightPct">Height <span class="unit">%</span></label>
+          <span class="rangebox">
+            <input type="range" id="heightPct" min="50" max="200" step="1" value="100" />
+            <output id="heightPctOut">100%</output>
+          </span>
+          <p class="hint" id="heightHint">Vertical stretch about the floor. 100% is the dome's natural height; the slider snaps there.</p>
         </div>
         <div class="field">
           <label>Resulting size <span class="unit">mm</span></label>
@@ -519,6 +572,11 @@
   //       rise = Y multiplier about the floor plane, set from the height input
   var MODE = { base: "full", crown: 1, stretch: 1, rise: 1 };
 
+  // Hand edits to individual hubs, keyed by their ideal-mesh position:
+  //   { radial: <sphere units, + is outward>, lift: <sphere units, + is up> }
+  var VERTEX_MOVES = {};
+  var SELECTED = null;      // key of the hub currently selected in the 3D view
+
   var els = {
     diaShort: document.getElementById("diaShort"),
     diaLong: document.getElementById("diaLong"),
@@ -543,8 +601,18 @@
     crown: document.getElementById("crown"),
     crownOut: document.getElementById("crownOut"),
     kerf: document.getElementById("kerf"),
-    heightIn: document.getElementById("heightIn"),
+    heightPct: document.getElementById("heightPct"),
+    heightPctOut: document.getElementById("heightPctOut"),
     heightHint: document.getElementById("heightHint"),
+    vpEmpty: document.getElementById("vpEmpty"),
+    vpBody: document.getElementById("vpBody"),
+    vpTitle: document.getElementById("vpTitle"),
+    vpClear: document.getElementById("vpClear"),
+    vpRadial: document.getElementById("vpRadial"),
+    vpRadialOut: document.getElementById("vpRadialOut"),
+    vpLift: document.getElementById("vpLift"),
+    vpLiftOut: document.getElementById("vpLiftOut"),
+    vpNote: document.getElementById("vpNote"),
     stockRows: document.getElementById("stockRows"),
     addStock: document.getElementById("addStock"),
     stockCount: document.getElementById("stockCount"),
@@ -564,20 +632,19 @@
   function mm(v) { return Math.round(v * 1000).toLocaleString(); }
   function small2big() { return 1000; }   // mm per m
 
-  var heightPinned = false;  // true once the user types their own height
-
   ["diaShort", "diaLong", "hubGap", "kerf"].forEach(function (id) {
     els[id].addEventListener("input", recalc);
   });
 
-  els.heightIn.addEventListener("input", function () {
-    heightPinned = true;
-    recalc();
-  });
-
-  els.heightHint.addEventListener("click", function (ev) {
-    if (!ev.target.closest("#resetHeight")) return;
-    heightPinned = false;
+  // Height slider snaps to 100% — the natural height is the value you most often
+  // want back, and it's easy to miss by a percent while dragging.
+  els.heightPct.addEventListener("input", function () {
+    var v = parseFloat(els.heightPct.value);
+    if (Math.abs(v - 100) <= 3 && v !== 100) {
+      v = 100;
+      els.heightPct.value = "100";
+    }
+    els.heightPctOut.textContent = v + "%";
     recalc();
   });
 
@@ -764,7 +831,8 @@
     C: { cls: "c", label: "C", role: "flattened base ring" },
     D: { cls: "d", label: "D", role: "base risers" },
     E: { cls: "e", label: "E", role: "spread crown ring" },
-    F: { cls: "f", label: "F", role: "crown feeds" }
+    F: { cls: "f", label: "F", role: "crown feeds" },
+    G: { cls: "g", label: "G", role: "hand-moved hubs" }
   };
 
   function recalc() {
@@ -814,14 +882,7 @@
     });
     var naturalH = nHi - nLo;
 
-    // Until the height field is touched it tracks the natural height, so changing
-    // a diameter or the cut doesn't silently leave the dome stretched to an old
-    // figure. Once edited it holds, and the dome stretches to match.
-    if (!heightPinned) {
-      els.heightIn.value = Math.round(naturalH * 1000);
-    }
-    var wantH = parseFloat(els.heightIn.value) / 1000;
-    var rise = (isFinite(wantH) && wantH > 0 && naturalH > 1e-9) ? wantH / naturalH : 1;
+    var rise = (parseFloat(els.heightPct.value) || 100) / 100;
     MODE.rise = rise;
 
     // real geometry at true scale
@@ -842,7 +903,7 @@
     });
     var rows = Object.keys(groups).map(function (k) { return groups[k]; });
     // sort: A, B, C, D then longest first
-    var order = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5 };
+    var order = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6 };
     rows.sort(function (m, n) {
       return order[m.type] - order[n.type] || n.chord - m.chord;
     });
@@ -886,9 +947,10 @@
 
     var risePct = naturalH > 1e-9 ? (height / naturalH) * 100 : 100;
     els.heightHint.innerHTML = Math.abs(risePct - 100) < 0.5
-      ? "Floor to the top hub — the dome's natural height, so struts keep their true geodesic lengths."
-      : "Natural height is " + mm(naturalH) + " mm; you're at " + Math.round(risePct) +
-        "%, so struts are re-measured to suit. <button type=\"button\" id=\"resetHeight\" class=\"linkbtn\">Reset</button>";
+      ? "Natural height — struts keep their true geodesic lengths. Apex sits <b>" +
+        mm(height) + " mm</b> above the floor."
+      : "Stretched to " + Math.round(risePct) + "% of the natural " + mm(naturalH) +
+        " mm, so struts are re-measured to suit. Apex now <b>" + mm(height) + " mm</b>.";
 
     els.cutBody.innerHTML = rows.map(function (r) {
       var bad = r.cut <= 0;
@@ -908,7 +970,7 @@
     // legend under the model mirrors the cut list
     var byType = {};
     rows.forEach(function (r) { byType[r.type] = (byType[r.type] || 0) + r.qty; });
-    els.legend.innerHTML = ["A", "B", "C", "D", "E", "F"].filter(function (t) { return byType[t]; })
+    els.legend.innerHTML = ["A", "B", "C", "D", "E", "F", "G"].filter(function (t) { return byType[t]; })
       .map(function (t) {
         return '<span class="legend-item"><span class="swatch ' + TYPE_META[t].cls + '"></span>' +
           t + ' · ' + byType[t] + '</span>';
@@ -958,6 +1020,13 @@
     renderPlan(plan, linealTotal);
 
     drawElevation(R);
+
+    // a hub can vanish when the cut changes; drop a stale selection
+    if (SELECTED) {
+      var still = false;
+      model.nodes.forEach(function (n) { if (n.key === SELECTED) still = true; });
+      if (!still) { SELECTED = null; renderVertexPanel(); }
+    }
   }
 
   function renderPlan(plan, linealTotal) {
@@ -986,7 +1055,8 @@
 
     var typeCol = {
       A: "var(--strut-a)", B: "var(--strut-b)", C: "var(--strut-c)",
-      D: "var(--strut-d)", E: "var(--strut-e)", F: "var(--strut-f)"
+      D: "var(--strut-d)", E: "var(--strut-e)", F: "var(--strut-f)",
+      G: "var(--strut-g)"
     };
 
     els.planRows.innerHTML = plist.map(function (p) {
@@ -1147,10 +1217,27 @@
       // only the dome's pitch changes.
       if (riseOn) y = yFloor + (y - yFloor) * rise;
 
+      // Per-vertex nudges, keyed on the vertex's position in the ideal mesh so
+      // they survive resizing and re-cutting. Radial moves the hub in or out
+      // along its own plan direction; lift moves it straight up or down.
+      var ov = VERTEX_MOVES[k];
+      if (ov) {
+        if (ov.radial) {
+          var pr = Math.hypot(x, z);
+          if (pr > 1e-9) {
+            var f = (pr + ov.radial) / pr;              // ov.radial is in sphere units
+            x *= f; z *= f;
+          }
+        }
+        if (ov.lift) y += ov.lift;
+      }
+
       pos[k] = {
         p: [x * R, y * R, z * R],
         base: onZig, moved: dropped,
-        crown: onCrown && crownOn
+        crown: onCrown && crownOn,
+        key: k,
+        edited: !!(ov && (ov.radial || ov.lift))
       };
     });
 
@@ -1174,7 +1261,11 @@
         // by measurement and suffixes them A1, A2, …
         type = Math.abs(L - CFa) <= Math.abs(L - CFb) ? "A" : "B";
       }
-      out.push({ a: pa.slice(), b: pb.slice(), type: type, len: L });
+      if (va.edited || vb.edited) type = "G";   // hand-moved hub: bespoke length
+      out.push({
+        a: pa.slice(), b: pb.slice(), type: type, len: L,
+        ka: va.key, kb: vb.key
+      });
     });
     return out;
   }
@@ -1188,6 +1279,7 @@
   var ctx = cv.getContext("2d");
   var view = { yaw: -0.55, pitch: 0.42, spin: true, dragging: false, lastX: 0, lastY: 0 };
   var model = { edges: [], nodes: [], radius: 1, groundY: 0 };
+  var hits = [];        // screen-space hub discs from the last render, for picking
 
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
@@ -1195,12 +1287,14 @@
 
   function buildModel(R) {
     var edges = domeVertices(R);
-    // unique nodes for the hub dots
+    // unique nodes for the hub dots, each carrying the mesh key it came from so
+    // a click in the 3D view can be tied back to a per-vertex override
     var nmap = {};
     edges.forEach(function (e) {
-      [e.a, e.b].forEach(function (p) {
+      [[e.a, e.ka], [e.b, e.kb]].forEach(function (pair) {
+        var p = pair[0], key = pair[1];
         var k = p.map(function (x) { return x.toFixed(2); }).join(",");
-        if (!nmap[k]) nmap[k] = p;
+        if (!nmap[k]) nmap[k] = { p: p, key: key };
       });
     });
     var lowest = Infinity, planR = 0;
@@ -1220,7 +1314,7 @@
     });
     model = {
       edges: edges,
-      nodes: Object.keys(nmap).map(function (k) { return nmap[k]; }),
+      nodes: Object.keys(nmap).map(function (k) { return nmap[k]; }),   // {p, key}
       radius: R,
       groundY: lowest,
       planR: planR,
@@ -1309,16 +1403,42 @@
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
 
-    // hub dots on near vertices
+    // hub dots. Screen positions are cached as we go so a click can hit-test
+    // against exactly what was drawn, near hubs taking priority over far ones.
     var ink = cssVar("--ink"), surf = cssVar("--surface");
-    model.nodes.map(project).sort(function (m, n) { return m.z - n.z; }).forEach(function (p) {
+    var moved = cssVar("--strut-g"), sel = cssVar("--strut-a");
+    hits = [];
+    model.nodes.map(function (n) {
+      var s = project(n.p);
+      s.key = n.key;
+      return s;
+    }).sort(function (m, n) { return m.z - n.z; }).forEach(function (p) {
       var frac = zmax > zmin ? (p.z - zmin) / (zmax - zmin) : 1;
-      if (frac < 0.5) return;
+      var near = frac >= 0.5;
+      var isSel = SELECTED && p.key === SELECTED;
+      var isMoved = !!VERTEX_MOVES[p.key];
+      if (!near && !isSel) return;
+
+      var r = 5.2 * (0.7 + 0.5 * frac);
+      if (isSel) r = Math.max(r, 7);
+      hits.push({ x: p.x, y: p.y, r: r + 6, key: p.key, z: p.z });
+
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 5.2 * (0.7 + 0.5 * frac), 0, Math.PI * 2);
-      ctx.fillStyle = ink;
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = isSel ? sel : (isMoved ? moved : ink);
+      ctx.globalAlpha = near ? 1 : 0.45;
       ctx.fill();
       ctx.lineWidth = 2; ctx.strokeStyle = surf; ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      if (isSel) {                       // selection ring
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = sel; ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     });
   }
 
@@ -1335,10 +1455,12 @@
     view.dragging = true;
     var t = e.touches ? e.touches[0] : e;
     view.lastX = t.clientX; view.lastY = t.clientY;
+    view.moved = false;
   }
   function pointerMove(e) {
     if (!view.dragging) return;
     var t = e.touches ? e.touches[0] : e;
+    if (Math.abs(t.clientX - view.lastX) + Math.abs(t.clientY - view.lastY) > 2) view.moved = true;
     view.yaw += (t.clientX - view.lastX) * 0.01;
     view.pitch += (t.clientY - view.lastY) * 0.01;
     view.pitch = Math.max(-0.15, Math.min(1.35, view.pitch));
@@ -1347,6 +1469,28 @@
     render();
   }
   function pointerUp() { view.dragging = false; }
+
+  // Picking: a press that barely moved is a click, not an orbit. Test against the
+  // discs drawn last frame, nearest-to-camera first so the front hub wins.
+  function pickAt(clientX, clientY) {
+    var rect = cv.getBoundingClientRect();
+    var sx = (clientX - rect.left) * (cv.width / rect.width);
+    var sy = (clientY - rect.top) * (cv.height / rect.height);
+    var best = null;
+    hits.forEach(function (h) {
+      var d = Math.hypot(sx - h.x, sy - h.y);
+      if (d <= h.r && (!best || h.z > best.z)) best = h;
+    });
+    return best ? best.key : null;
+  }
+
+  cv.addEventListener("click", function (e) {
+    if (view.moved) return;                 // that was a drag, not a pick
+    var key = pickAt(e.clientX, e.clientY);
+    SELECTED = (key && key === SELECTED) ? null : key;   // click again to deselect
+    renderVertexPanel();
+    render();
+  });
 
   cv.addEventListener("mousedown", pointerDown);
   window.addEventListener("mousemove", pointerMove);
@@ -1375,6 +1519,61 @@
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
+
+  // ---------- vertex editor ----------
+  // Slider values are millimetres on the real dome; VERTEX_MOVES stores sphere
+  // units so an edit keeps its physical size when the dome is resized.
+  function renderVertexPanel() {
+    if (!SELECTED) {
+      els.vpEmpty.hidden = false;
+      els.vpBody.hidden = true;
+      return;
+    }
+    els.vpEmpty.hidden = true;
+    els.vpBody.hidden = false;
+
+    var mv = VERTEX_MOVES[SELECTED] || { radial: 0, lift: 0 };
+    var R = model.radius || 1;
+    els.vpRadial.value = Math.round((mv.radial || 0) * R * 1000);
+    els.vpLift.value = Math.round((mv.lift || 0) * R * 1000);
+    els.vpRadialOut.textContent = els.vpRadial.value;
+    els.vpLiftOut.textContent = els.vpLift.value;
+
+    // describe where this hub sits, so the selection is legible
+    var node = null;
+    model.nodes.forEach(function (n) { if (n.key === SELECTED) node = n; });
+    if (node) {
+      var pr = Math.hypot(node.p[0], node.p[2]);
+      var hgt = node.p[1] - model.groundY;
+      els.vpTitle.textContent = "Hub · r " + Math.round(pr * 1000) + " · h " + Math.round(hgt * 1000);
+      els.vpNote.textContent = Math.abs(pr) < 1e-6
+        ? "This hub is on the dome's axis, so radial has no direction to move it along."
+        : "Radial slides the hub in or out along its own plan line; lift moves it straight up or down. Struts touching it are re-measured as type G.";
+    }
+    els.vpRadial.disabled = !!(node && Math.hypot(node.p[0], node.p[2]) < 1e-6);
+  }
+
+  function applyVertexMove() {
+    if (!SELECTED) return;
+    var R = model.radius || 1;
+    var rad = (parseFloat(els.vpRadial.value) || 0) / 1000 / R;
+    var lift = (parseFloat(els.vpLift.value) || 0) / 1000 / R;
+    els.vpRadialOut.textContent = els.vpRadial.value;
+    els.vpLiftOut.textContent = els.vpLift.value;
+    if (Math.abs(rad) < 1e-12 && Math.abs(lift) < 1e-12) delete VERTEX_MOVES[SELECTED];
+    else VERTEX_MOVES[SELECTED] = { radial: rad, lift: lift };
+    recalc();
+  }
+
+  els.vpRadial.addEventListener("input", applyVertexMove);
+  els.vpLift.addEventListener("input", applyVertexMove);
+  els.vpClear.addEventListener("click", function () {
+    if (!SELECTED) return;
+    delete VERTEX_MOVES[SELECTED];
+    els.vpRadial.value = "0"; els.vpLift.value = "0";
+    recalc();
+    renderVertexPanel();
+  });
 
   // ---------- theme toggle ----------
   var THEME_KEY = "dome-planner-theme";
@@ -1405,5 +1604,6 @@
 
   renderStock();
   recalc();
+  renderVertexPanel();
 })();
 </script>
