@@ -301,6 +301,23 @@
     font-family: var(--f-mono); font-size: 9px; color: #fff;
     border-right: 1px solid rgba(255,255,255,.45); overflow: hidden; white-space: nowrap;
   }
+  .plan-group { display: flex; flex-direction: column; gap: 3px; }
+  .plan-piece { font-size: 10px; letter-spacing: .02em; padding: 0 2px; }
+  .plan-ids {
+    display: flex; flex-wrap: wrap; gap: 2px 14px;
+    padding-left: 102px; margin-bottom: 3px;
+  }
+  .plan-idline {
+    font-family: var(--f-mono); font-size: .68rem; color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .plan-idline em {
+    font-style: normal; color: var(--text-dim); opacity: .6;
+    margin-right: 5px;
+  }
+  .plan-piece.lit { outline: 2px solid var(--critical); outline-offset: -2px; }
+  @media (max-width: 520px) { .plan-ids { padding-left: 0; } }
+
   .plan-drop { background: repeating-linear-gradient(45deg, transparent, transparent 3px, var(--line) 3px, var(--line) 5px); }
 
   .rangebox { display: inline-flex; align-items: center; gap: 10px; }
@@ -421,6 +438,7 @@
         <span class="seg" id="labelSeg" role="group" aria-label="Edge labels" style="margin-left:auto">
           <button type="button" data-labels="one" aria-pressed="true">1 per length</button>
           <button type="button" data-labels="all" aria-pressed="false">All</button>
+          <button type="button" data-labels="id" aria-pressed="false">Each</button>
           <button type="button" data-labels="off" aria-pressed="false">None</button>
         </span>
         <button type="button" id="spinBtn" class="theme-toggle">Pause spin</button>
@@ -882,6 +900,17 @@
     return best || { bins: [], unplaced: pieces.slice(), ok: false };
   }
 
+  // a, b, ... z, aa, ab, ... — plenty for any dome, and stays readable
+  function instLetter(n) {
+    var out = "";
+    n = n | 0;
+    do {
+      out = String.fromCharCode(97 + (n % 26)) + out;
+      n = Math.floor(n / 26) - 1;
+    } while (n >= 0);
+    return out;
+  }
+
   var TYPE_META = {
     A: { cls: "a", label: "A", role: "triangle legs" },
     B: { cls: "b", label: "B", role: "pentagon rings" },
@@ -1010,7 +1039,24 @@
     Object.keys(bounds).forEach(function (t) {
       bounds[t].sort(function (m, n) { return m.chord - n.chord; });
     });
-    edges.forEach(function (e) {
+    // Assign each strut its own id within its length group: D5-a, D5-b, ...
+    // The length tag alone can't tell you which physical pole goes where, so
+    // every strut gets a letter. Ordering is deterministic — by height, then
+    // around the dome — so the same design always produces the same ids and a
+    // printed list matches the model.
+    var instCount = {};
+    var ordered = edges.slice();
+    ordered.forEach(function (e) {
+      var mx = (e.a[0] + e.b[0]) / 2, my = (e.a[1] + e.b[1]) / 2, mz = (e.a[2] + e.b[2]) / 2;
+      e._mid = [mx, my, mz];
+      e._ang = Math.atan2(mz, mx);
+    });
+    ordered.sort(function (m, n) {
+      var dy = n._mid[1] - m._mid[1];              // top of the dome first
+      if (Math.abs(dy) > 1e-9) return dy;
+      return m._ang - n._ang;                      // then anticlockwise around
+    });
+    ordered.forEach(function (e) {
       var list = bounds[e.type] || [];
       var best = null, bestD = Infinity;
       list.forEach(function (r) {
@@ -1018,6 +1064,12 @@
         if (d < bestD) { bestD = d; best = r; }
       });
       e.row = best;
+      if (best) {
+        var n = (instCount[best.tag] || 0);
+        instCount[best.tag] = n + 1;
+        e.inst = instLetter(n);
+        e.id = best.tag + "-" + e.inst;
+      }
     });
 
     var toBig = isFinite(takeoff) ? takeoff / small2big() : 0;   // per end, big units
@@ -1110,10 +1162,15 @@
       : "Shallower. Zig-zag ring forced level, adding C / D lengths.";
 
     // ---- cutting plan ----
+    // Build the piece list from the actual struts, so every piece on the cutting
+    // plan carries the id of the strut it becomes. Cutting to the row's length
+    // (not the strut's own) is deliberate: merged lengths are meant to be one cut.
     var pieces = [];
-    rows.forEach(function (r) {
-      for (var i = 0; i < r.qty; i++) pieces.push({ len: r.cut, tag: r.tag, type: r.type });
+    edges.forEach(function (e) {
+      if (!e.row || e.row.cut <= 0) return;
+      pieces.push({ len: e.row.cut, tag: e.row.tag, type: e.type, id: e.id });
     });
+    pieces.sort(function (m, n) { return n.len - m.len; });
 
     // stock is held in mm; the packer works in metres alongside the geometry
     var stockM = stock.map(function (s) {
@@ -1143,7 +1200,7 @@
         ringEdges.length + " poles (" + mm(ringLen) + " mm total).";
 
     // keep the current cut list around for CSV export
-    LAST = { rows: rows, spanX: spanX, spanZ: spanZ, height: height, plan: plan };
+    LAST = { rows: rows, spanX: spanX, spanZ: spanZ, height: height, plan: plan, edges: edges };
 
     // every state change lands here, so this is the one place saving belongs
     saveSettings();
@@ -1162,40 +1219,63 @@
       return;
     }
 
-    // group identical poles (same capacity + same multiset of pieces) so the plan
-    // reads as "6 × this pattern" rather than six identical rows
+    // Group identical poles (same capacity, same multiset of cut lengths) so the
+    // plan reads as "6 x this pattern". Ids are listed per pole underneath, since
+    // two poles cut the same way still become different struts.
     var patterns = {};
     bins.forEach(function (b) {
-      var sig = b.cap.toFixed(4) + "|" + b.pieces.map(function (p) { return p.tag; }).sort().join(",");
-      if (!patterns[sig]) patterns[sig] = { cap: b.cap, pieces: b.pieces, count: 0 };
-      patterns[sig].count++;
+      var sig = b.cap.toFixed(4) + "|" +
+        b.pieces.map(function (p) { return p.tag; }).sort().join(",");
+      if (!patterns[sig]) patterns[sig] = { cap: b.cap, pieces: b.pieces, bins: [] };
+      patterns[sig].bins.push(b);
     });
     var plist = Object.keys(patterns).map(function (k) { return patterns[k]; });
-    plist.sort(function (m, n) { return n.cap - m.cap || n.count - m.count; });
+    plist.sort(function (m, n) { return n.cap - m.cap || n.bins.length - m.bins.length; });
 
     var typeCol = {
       A: "var(--strut-a)", B: "var(--strut-b)", C: "var(--strut-c)",
       D: "var(--strut-d)", E: "var(--strut-e)", F: "var(--strut-f)",
       G: "var(--strut-g)"
     };
+    var kerfM2 = (parseFloat(els.kerf.value) || 0) / 1000;
 
     els.planRows.innerHTML = plist.map(function (p) {
-      var used = p.pieces.reduce(function (s, x) { return s + x.len; }, 0);
-      var drop = p.cap - used - Math.max(0, p.pieces.length - 1) * (parseFloat(els.kerf.value) / 1000 || 0);
+      var count = p.bins.length;
+      var used = p.pieces.reduce(function (s2, x) { return s2 + x.len; }, 0);
+      var drop = p.cap - used - Math.max(0, p.pieces.length - 1) * kerfM2;
+
       var segs = p.pieces.map(function (x) {
         var pct = (x.len / p.cap) * 100;
+        // show the cut length inside the bar whenever it fits, the tag when only
+        // a little fits, and rely on the tooltip when the piece is very short
+        var label = pct > 20 ? (x.tag + " " + Math.round(x.len * 1000))
+                  : pct > 9  ? x.tag
+                  : "";
         return '<span class="plan-piece" style="width:' + pct.toFixed(2) + '%;background:' +
-          (typeCol[x.type] || "var(--strut-a)") + '" title="' + x.tag + " — " + Math.round(x.len * 1000) + ' mm">' +
-          (pct > 11 ? x.tag : "") + '</span>';
+          (typeCol[x.type] || "var(--strut-a)") + '" data-tag="' + x.tag +
+          '" title="' + x.tag + " — " + Math.round(x.len * 1000) + ' mm">' + label + '</span>';
       }).join("");
+
       var dropPct = Math.max(0, (drop / p.cap) * 100);
       if (dropPct > 0.4) {
         segs += '<span class="plan-piece plan-drop" style="width:' + dropPct.toFixed(2) +
-          '%" title="offcut ' + Math.round(drop * 1000) + ' mm"></span>';
+          '%" title="offcut ' + Math.round(drop * 1000) + ' mm">' +
+          (dropPct > 20 ? Math.round(drop * 1000) + " drop" : "") + '</span>';
       }
-      return '<div class="plan-row">' +
-        '<span class="plan-label">' + p.count + ' × ' + Math.round(p.cap * 1000) + '</span>' +
-        '<span class="plan-bar">' + segs + '</span>' +
+
+      // the struts each pole in this pattern becomes, pole by pole
+      var idLines = p.bins.map(function (b) {
+        return b.pieces.map(function (x) { return x.id || x.tag; }).join(" · ");
+      });
+
+      return '<div class="plan-group">' +
+        '<div class="plan-row">' +
+          '<span class="plan-label">' + count + ' × ' + Math.round(p.cap * 1000) + '</span>' +
+          '<span class="plan-bar">' + segs + '</span>' +
+        '</div>' +
+        '<div class="plan-ids">' + idLines.map(function (l, i) {
+          return '<span class="plan-idline"><em>' + (i + 1) + '</em>' + l + '</span>';
+        }).join("") + '</div>' +
         '</div>';
     }).join("");
 
@@ -1501,7 +1581,8 @@
       var pa = project(e.a), pb = project(e.b);
       return {
         pa: pa, pb: pb, z: (pa.z + pb.z) / 2, type: e.type,
-        tag: e.row ? e.row.tag : e.type
+        tag: e.row ? e.row.tag : e.type,
+        id: e.id || (e.row ? e.row.tag : e.type)
       };
     });
     drawn.sort(function (m, n) { return m.z - n.z; });
@@ -1567,7 +1648,10 @@
         }
         var lit2 = HOVER_TAG && d.tag === HOVER_TAG;
         if (HOVER_TAG && !lit2 && LABELS === "one") return;
-        var w = ctx.measureText(d.tag).width + 10;
+        // "id" mode names each individual strut, which is what you read off
+        // while actually putting the dome together
+        var text = (LABELS === "id") ? d.id : d.tag;
+        var w = ctx.measureText(text).width + 10;
         ctx.fillStyle = lit2 ? hot : cssVar("--surface");
         ctx.globalAlpha = lit2 ? 1 : 0.88;
         ctx.beginPath();
@@ -1580,7 +1664,7 @@
         }
         ctx.globalAlpha = 1;
         ctx.fillStyle = lit2 ? cssVar("--surface") : cssVar("--text");
-        ctx.fillText(d.tag, mx, my + 0.5);
+        ctx.fillText(text, mx, my + 0.5);
       });
     } else {
       edgeHits = [];
@@ -1731,6 +1815,9 @@
     els.cutBody.querySelectorAll("tr").forEach(function (tr) {
       tr.classList.toggle("lit", !!tag && tr.dataset.tag === tag);
     });
+    els.planRows.querySelectorAll(".plan-piece[data-tag]").forEach(function (el) {
+      el.classList.toggle("lit", !!tag && el.dataset.tag === tag);
+    });
     render();
   }
 
@@ -1755,6 +1842,12 @@
     if (tr && tr.dataset.tag) setHover(tr.dataset.tag);
   });
   els.cutBody.addEventListener("mouseleave", function () { setHover(null); });
+
+  els.planRows.addEventListener("mouseover", function (ev) {
+    var el = ev.target.closest(".plan-piece[data-tag]");
+    if (el) setHover(el.dataset.tag);
+  });
+  els.planRows.addEventListener("mouseleave", function () { setHover(null); });
 
   // ---------- vertex editor ----------
   // Slider values are millimetres on the real dome; VERTEX_MOVES stores sphere
@@ -1832,6 +1925,7 @@
       fields: f,
       base: MODE.base,
       dropGround: MODE.dropGround,
+      labels: LABELS,
       stock: stock.map(function (s) { return { len: s.len, qty: s.qty }; }),
       vertexMoves: VERTEX_MOVES
     };
@@ -1850,6 +1944,13 @@
       if (data.fields) {
         SAVE_FIELDS.forEach(function (id) {
           if (data.fields[id] != null && els[id]) els[id].value = data.fields[id];
+        });
+      }
+      if (data.labels === "one" || data.labels === "all" ||
+          data.labels === "id" || data.labels === "off") {
+        LABELS = data.labels;
+        els.labelSeg.querySelectorAll("button").forEach(function (x) {
+          x.setAttribute("aria-pressed", String(x.dataset.labels === LABELS));
         });
       }
       MODE.dropGround = !!data.dropGround;
@@ -1972,6 +2073,31 @@
       Object.keys(per).sort(function (m, n) { return n - m; }).forEach(function (k) {
         lines.push(',' + k + ',' + per[k]);
       });
+
+      // pole-by-pole cutting plan, each piece named by the strut it becomes
+      lines.push("");
+      lines.push(["pole", "stock_mm", "piece", "strut_id", "cut_mm"].join(","));
+      LAST.plan.bins.forEach(function (b, bi) {
+        b.pieces.forEach(function (pc, pi) {
+          lines.push([bi + 1, Math.round(b.cap * 1000), pi + 1,
+            pc.id || pc.tag, Math.round(pc.len * 1000)].join(","));
+        });
+      });
+    }
+
+    // every strut, so the model can be rebuilt piece by piece
+    if (LAST.edges && LAST.edges.length) {
+      lines.push("");
+      lines.push(["strut_id", "length_group", "cut_mm", "x1", "y1", "z1", "x2", "y2", "z2"].join(","));
+      LAST.edges.slice().sort(function (m, n) {
+        return String(m.id || "").localeCompare(String(n.id || ""), undefined, { numeric: true });
+      }).forEach(function (e) {
+        if (!e.row) return;
+        lines.push([e.id, e.row.tag, Math.round(e.row.cut * 1000),
+          Math.round(e.a[0] * 1000), Math.round(e.a[1] * 1000), Math.round(e.a[2] * 1000),
+          Math.round(e.b[0] * 1000), Math.round(e.b[1] * 1000), Math.round(e.b[2] * 1000)
+        ].join(","));
+      });
     }
     saveBlob(lines.join("\n"), designName("csv"), "text/csv");
     fileMsg("Cut list exported as CSV.");
@@ -1983,6 +2109,10 @@
     SELECTED = null;
     MODE.base = "full";
     MODE.dropGround = false;
+    LABELS = "one";
+    els.labelSeg.querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.labels === "one"));
+    });
     els.ropeSeg.querySelectorAll("button").forEach(function (x) {
       x.setAttribute("aria-pressed", String(x.dataset.rope === "0"));
     });
