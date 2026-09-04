@@ -217,6 +217,9 @@
   }
   .vp-note { font-size: .76rem; color: var(--text-dim); margin: 8px 0 0; }
 
+  .filebar { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filebar button { flex: 0 0 auto; }
+
   .linkbtn {
     background: none; border: none; padding: 0; cursor: pointer;
     font: inherit; color: var(--strut-b); text-decoration: underline;
@@ -543,6 +546,21 @@
       <p class="notes" id="planNote"></p>
 
       <p class="notes" id="pilesNote"></p>
+
+      <fieldset>
+        <legend>Design file</legend>
+        <div class="filebar">
+          <button type="button" id="dlDesign" class="theme-toggle">Download design</button>
+          <button type="button" id="upDesign" class="theme-toggle">Upload design</button>
+          <button type="button" id="dlCsv" class="theme-toggle">Cut list CSV</button>
+          <button type="button" id="resetAll" class="theme-toggle">Reset all</button>
+          <input type="file" id="fileIn" accept="application/json,.json" hidden />
+        </div>
+        <p class="hint" id="fileNote" style="margin-top:10px">
+          Settings save to this browser automatically. Download a design to keep it
+          elsewhere or share it; upload one to load it back.
+        </p>
+      </fieldset>
     </div>
   </div>
 
@@ -613,6 +631,12 @@
     vpLift: document.getElementById("vpLift"),
     vpLiftOut: document.getElementById("vpLiftOut"),
     vpNote: document.getElementById("vpNote"),
+    dlDesign: document.getElementById("dlDesign"),
+    upDesign: document.getElementById("upDesign"),
+    dlCsv: document.getElementById("dlCsv"),
+    resetAll: document.getElementById("resetAll"),
+    fileIn: document.getElementById("fileIn"),
+    fileNote: document.getElementById("fileNote"),
     stockRows: document.getElementById("stockRows"),
     addStock: document.getElementById("addStock"),
     stockCount: document.getElementById("stockCount"),
@@ -1027,6 +1051,12 @@
       model.nodes.forEach(function (n) { if (n.key === SELECTED) still = true; });
       if (!still) { SELECTED = null; renderVertexPanel(); }
     }
+
+    // keep the current cut list around for CSV export
+    LAST = { rows: rows, spanX: spanX, spanZ: spanZ, height: height, plan: plan };
+
+    // every state change lands here, so this is the one place saving belongs
+    saveSettings();
   }
 
   function renderPlan(plan, linealTotal) {
@@ -1280,6 +1310,7 @@
   var view = { yaw: -0.55, pitch: 0.42, spin: true, dragging: false, lastX: 0, lastY: 0 };
   var model = { edges: [], nodes: [], radius: 1, groundY: 0 };
   var hits = [];        // screen-space hub discs from the last render, for picking
+  var LAST = null;      // last computed cut list + summary, for CSV export
 
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
@@ -1575,6 +1606,183 @@
     renderVertexPanel();
   });
 
+  // ---------- settings persistence ----------
+  // Everything that defines a design is kept in localStorage so a reload picks up
+  // where you left off. Transient things (which hub is selected, the camera) are
+  // deliberately not saved. Wrapped in try/catch throughout: private windows and
+  // blocked site data make these throw rather than fail quietly.
+  var SETTINGS_KEY = "dome-planner-settings-v1";
+  var SAVE_FIELDS = ["diaShort", "diaLong", "crown", "heightPct", "hubGap", "kerf"];
+  var restoring = false;
+  // the markup's own values, captured before any restore, so Reset all can
+  // return to them without hardcoding the numbers twice
+  var DEFAULTS = {};
+  SAVE_FIELDS.forEach(function (id) { DEFAULTS[id] = els[id].value; });
+  var DEFAULT_STOCK = stock.map(function (x) { return { len: x.len, qty: x.qty }; });
+
+  function collectSettings() {
+    var f = {};
+    SAVE_FIELDS.forEach(function (id) { f[id] = els[id].value; });
+    return {
+      fields: f,
+      base: MODE.base,
+      stock: stock.map(function (s) { return { len: s.len, qty: s.qty }; }),
+      vertexMoves: VERTEX_MOVES
+    };
+  }
+
+  function saveSettings() {
+    if (restoring) return;
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(collectSettings())); }
+    catch (e) { /* storage unavailable — the app still works, just won't persist */ }
+  }
+
+  function applySettings(data) {
+    if (!data || typeof data !== "object") return false;
+    restoring = true;
+    try {
+      if (data.fields) {
+        SAVE_FIELDS.forEach(function (id) {
+          if (data.fields[id] != null && els[id]) els[id].value = data.fields[id];
+        });
+      }
+      if (data.base === "full" || data.base === "shoulder") {
+        MODE.base = data.base;
+        els.modeSeg.querySelectorAll("button").forEach(function (b) {
+          b.setAttribute("aria-pressed", String(b.dataset.mode === data.base));
+        });
+      }
+      if (Array.isArray(data.stock) && data.stock.length) {
+        stock = data.stock.slice(0, MAX_STOCK).map(function (s) {
+          return { len: parseFloat(s.len) || 2400, qty: s.qty == null ? null : (parseInt(s.qty, 10) || 0) };
+        });
+      }
+      VERTEX_MOVES = (data.vertexMoves && typeof data.vertexMoves === "object") ? data.vertexMoves : {};
+      SELECTED = null;
+      if (els.crownOut) els.crownOut.textContent = els.crown.value + "%";
+      if (els.heightPctOut) els.heightPctOut.textContent = els.heightPct.value + "%";
+    } finally {
+      restoring = false;
+    }
+    return true;
+  }
+
+  function loadSettings() {
+    try {
+      var raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return false;
+      return applySettings(JSON.parse(raw));
+    } catch (e) { return false; }
+  }
+
+  // ---------- design file: download / upload / export ----------
+  function saveBlob(text, filename, mime) {
+    var blob = new Blob([text], { type: mime });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  function designName(ext) {
+    var w = Math.round((LAST ? LAST.spanZ * 2 : 0) * 1000);
+    var l = Math.round((LAST ? LAST.spanX * 2 : 0) * 1000);
+    return "dome-" + w + "x" + l + "-" + MODE.base + "." + ext;
+  }
+
+  function fileMsg(text, bad) {
+    els.fileNote.innerHTML = bad ? '<b style="color:var(--critical)">' + text + "</b>" : text;
+  }
+
+  els.dlDesign.addEventListener("click", function () {
+    var payload = collectSettings();
+    payload.format = "2v-dome-planner";
+    payload.version = 1;
+    payload.saved = new Date().toISOString();
+    saveBlob(JSON.stringify(payload, null, 2), designName("json"), "application/json");
+    fileMsg("Design downloaded. Upload it here to load it back.");
+  });
+
+  els.upDesign.addEventListener("click", function () { els.fileIn.click(); });
+
+  els.fileIn.addEventListener("change", function () {
+    var file = els.fileIn.files && els.fileIn.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var data;
+      try { data = JSON.parse(reader.result); }
+      catch (e) { fileMsg("That file isn't valid JSON, so nothing was changed.", true); return; }
+      if (!data || !data.fields) {
+        fileMsg("That JSON isn't a dome design — it has no settings in it. Nothing was changed.", true);
+        return;
+      }
+      applySettings(data);
+      renderStock();
+      recalc();
+      renderVertexPanel();
+      fileMsg("Loaded " + file.name + ".");
+    };
+    reader.onerror = function () { fileMsg("Couldn't read that file. Try again.", true); };
+    reader.readAsText(file);
+    els.fileIn.value = "";        // let the same file be picked twice running
+  });
+
+  els.dlCsv.addEventListener("click", function () {
+    if (!LAST || !LAST.rows.length) return;
+    var lines = [["strut", "qty", "chord_mm", "cut_mm", "lineal_mm", "role"].join(",")];
+    LAST.rows.forEach(function (r) {
+      lines.push([
+        r.tag, r.qty,
+        Math.round(r.chord * 1000),
+        Math.round(r.cut * 1000),
+        Math.round(r.lineal * 1000),
+        '"' + ((TYPE_META[r.type] && TYPE_META[r.type].role) || "") + '"'
+      ].join(","));
+    });
+    lines.push("");
+    lines.push('"footprint_mm","' + Math.round(LAST.spanZ * 2000) + " x " + Math.round(LAST.spanX * 2000) + '"');
+    lines.push('"apex_height_mm",' + Math.round(LAST.height * 1000));
+    lines.push('"hub_takeoff_mm_per_end",' + (parseFloat(els.hubGap.value) || 0));
+    if (LAST.plan && LAST.plan.bins.length) {
+      var per = {};
+      LAST.plan.bins.forEach(function (b) {
+        var k = Math.round(b.cap * 1000);
+        per[k] = (per[k] || 0) + 1;
+      });
+      lines.push("");
+      lines.push('"poles","length_mm","count"');
+      Object.keys(per).sort(function (m, n) { return n - m; }).forEach(function (k) {
+        lines.push(',' + k + ',' + per[k]);
+      });
+    }
+    saveBlob(lines.join("\n"), designName("csv"), "text/csv");
+    fileMsg("Cut list exported as CSV.");
+  });
+
+  els.resetAll.addEventListener("click", function () {
+    try { localStorage.removeItem(SETTINGS_KEY); } catch (e) {}
+    VERTEX_MOVES = {};
+    SELECTED = null;
+    MODE.base = "full";
+    els.modeSeg.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.mode === "full"));
+    });
+    var d = DEFAULTS;
+    SAVE_FIELDS.forEach(function (id) { els[id].value = d[id]; });
+    els.crownOut.textContent = els.crown.value + "%";
+    els.heightPctOut.textContent = els.heightPct.value + "%";
+    stock = DEFAULT_STOCK.map(function (x) { return { len: x.len, qty: x.qty }; });
+    renderStock();
+    recalc();
+    renderVertexPanel();
+    fileMsg("Everything back to defaults.");
+  });
+
   // ---------- theme toggle ----------
   var THEME_KEY = "dome-planner-theme";
   function applyTheme(t) {
@@ -1602,6 +1810,7 @@
     try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
   });
 
+  loadSettings();
   renderStock();
   recalc();
   renderVertexPanel();
