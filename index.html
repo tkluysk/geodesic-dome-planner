@@ -1,0 +1,951 @@
+<title>2V Dome Pole Planner</title>
+<meta name="description" content="Cut list and geometry planner for a two-frequency hub-and-strut geodesic dome." />
+<style>
+  :root {
+    /* cyanotype / drafting-table palette */
+    --ink:        #0a2540;
+    --ink-2:      #10305a;
+    --paper:      #eef1f5;
+    --paper-2:    #e3e8ef;
+    --surface:    #f7f9fb;
+    --line:       #b6c2d2;
+    --line-soft:  #d3dbe6;
+    --text:       #16233b;
+    --text-dim:   #5a6b85;
+    --strut-a:    #d1602e;   /* burnt drafting-pencil orange */
+    --strut-b:    #1f8a80;   /* teal */
+    --strut-c:    #6a4fa3;   /* violet — flattened base ring */
+    --strut-d:    #a8862c;   /* ochre — base risers */
+    --critical:   #b83c26;
+    --accent:     var(--strut-a);
+    --shadow:     0 1px 2px rgba(10,37,64,.08), 0 8px 24px rgba(10,37,64,.06);
+
+    --f-display: "Fraunces", Georgia, "Times New Roman", serif;
+    --f-body:    "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --step: clamp(2px, .4vw, 6px);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink:       #0b1a30;
+      --ink-2:     #12294a;
+      --paper:     #121a28;
+      --paper-2:   #0d1420;
+      --surface:   #18202e;
+      --line:      #33425a;
+      --line-soft: #263143;
+      --text:      #dbe4f0;
+      --text-dim:  #8b9bb6;
+      --strut-a:   #e8894f;
+      --strut-b:   #3bb3a6;
+      --strut-c:   #9b82d8;
+      --strut-d:   #d4b45a;
+      --critical:  #e06a4f;
+      --shadow:    0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:       #0b1a30;
+    --ink-2:     #12294a;
+    --paper:     #121a28;
+    --paper-2:   #0d1420;
+    --surface:   #18202e;
+    --line:      #33425a;
+    --line-soft: #263143;
+    --text:      #dbe4f0;
+    --text-dim:  #8b9bb6;
+    --strut-a:   #e8894f;
+    --strut-b:   #3bb3a6;
+    --strut-c:   #9b82d8;
+    --strut-d:   #d4b45a;
+    --critical:  #e06a4f;
+    --shadow:    0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--text);
+    font-family: var(--f-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { font-family: var(--f-display); font-weight: 500; text-wrap: balance; margin: 0; }
+  a { color: var(--strut-b); }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: clamp(16px, 3vw, 40px); }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    display: flex; flex-wrap: wrap; align-items: flex-end; gap: 18px 28px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 16px;
+  }
+  .titleblock { flex: 1 1 320px; }
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--text-dim);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before {
+    content: ""; width: 26px; height: 1px; background: var(--strut-a); display: inline-block;
+  }
+  h1 {
+    font-size: clamp(2rem, 4.6vw, 3.15rem);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 8px 0 6px;
+    font-optical-sizing: auto;
+  }
+  h1 .freq { font-style: italic; color: var(--strut-a); }
+  .standfirst { color: var(--text-dim); max-width: 54ch; font-size: .96rem; }
+
+  .theme-toggle {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    background: transparent; border: 1px solid var(--line); color: var(--text-dim);
+    padding: 7px 12px; border-radius: 2px; cursor: pointer; white-space: nowrap;
+  }
+  .theme-toggle:hover { border-color: var(--strut-a); color: var(--text); }
+  .theme-toggle:focus-visible { outline: 2px solid var(--strut-b); outline-offset: 2px; }
+
+  /* ---- workbench layout ---- */
+  .workbench {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr);
+    gap: clamp(20px, 3vw, 44px);
+    margin-top: 28px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .workbench { grid-template-columns: 1fr; }
+  }
+
+  /* ---- drawing panel ---- */
+  .drawing {
+    position: sticky; top: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    box-shadow: var(--shadow);
+  }
+  @media (max-width: 860px) { .drawing { position: static; } }
+  .drawing-head {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 12px 16px; border-bottom: 1px solid var(--line-soft);
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .drawing-head .sheet-no { color: var(--text); }
+  canvas.elevation {
+    display: block; width: 100%; height: auto; background: var(--surface);
+    touch-action: none; cursor: grab;
+  }
+  canvas.elevation:active { cursor: grabbing; }
+  .drawing-foot {
+    display: flex; flex-wrap: wrap; gap: 6px 20px;
+    padding: 12px 16px; border-top: 1px solid var(--line-soft);
+    font-family: var(--f-mono); font-size: 12px; color: var(--text-dim);
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; }
+  .swatch { width: 22px; height: 3px; display: inline-block; }
+  .swatch.a { background: var(--strut-a); }
+  .swatch.b { background: var(--strut-b); }
+  .swatch.c { background: var(--strut-c); }
+  .swatch.d { background: var(--strut-d); }
+  .swatch.dashed {
+    height: 0; border-top: 2px dashed var(--text-dim); width: 22px;
+  }
+
+  /* ---- controls ---- */
+  .panel { display: flex; flex-direction: column; gap: 26px; }
+  fieldset {
+    border: none; border-top: 1px solid var(--ink); margin: 0; padding: 14px 0 0;
+  }
+  legend {
+    font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink); padding: 0; margin-bottom: 4px;
+    background: var(--paper);
+  }
+  :root[data-theme="dark"] legend, :root:not([data-theme="light"]) legend { }
+
+  .field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px 12px; padding: 9px 0; border-bottom: 1px dotted var(--line-soft); }
+  .field:last-child { border-bottom: none; }
+  .field label { font-size: .9rem; }
+  .field .hint { grid-column: 1 / -1; font-size: .78rem; color: var(--text-dim); margin-top: -2px; }
+  .field input[type="number"], .field select {
+    font-family: var(--f-mono); font-size: .95rem;
+    width: 128px; text-align: right;
+    padding: 6px 8px;
+    border: 1px solid var(--line); border-radius: 2px;
+    background: var(--surface); color: var(--text);
+  }
+  .field select { text-align: left; }
+  .field input:focus-visible, .field select:focus-visible {
+    outline: 2px solid var(--strut-b); outline-offset: 1px; border-color: var(--strut-b);
+  }
+  .seg {
+    display: inline-flex; border: 1px solid var(--line); border-radius: 2px; overflow: hidden;
+  }
+  .seg button {
+    font-family: var(--f-mono); font-size: .8rem; letter-spacing: .04em;
+    padding: 6px 12px; border: none; background: var(--surface); color: var(--text-dim); cursor: pointer;
+  }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  .seg button:focus-visible { outline: 2px solid var(--strut-b); outline-offset: -2px; }
+
+  /* ---- cut list ---- */
+  .cutlist-wrap { overflow-x: auto; }
+  table.cutlist {
+    width: 100%; border-collapse: collapse; font-family: var(--f-mono); font-size: .86rem;
+  }
+  table.cutlist caption {
+    text-align: left; font-family: var(--f-mono); font-size: 11px; letter-spacing: .18em;
+    text-transform: uppercase; color: var(--ink); padding-bottom: 8px;
+    border-bottom: 1px solid var(--ink); margin-bottom: 2px;
+  }
+  table.cutlist th, table.cutlist td { padding: 9px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+  table.cutlist th:first-child, table.cutlist td:first-child { text-align: left; }
+  table.cutlist thead th {
+    font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim);
+    border-bottom: 1px solid var(--line);
+  }
+  table.cutlist tbody tr { border-bottom: 1px dotted var(--line-soft); }
+  table.cutlist .strut-tag { display: inline-flex; align-items: center; gap: 7px; }
+  table.cutlist .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  table.cutlist .dot.a { background: var(--strut-a); }
+  table.cutlist .dot.b { background: var(--strut-b); }
+  table.cutlist .dot.c { background: var(--strut-c); }
+  table.cutlist .dot.d { background: var(--strut-d); }
+  table.cutlist tfoot td {
+    border-top: 2px solid var(--ink); font-weight: 700; color: var(--text);
+    padding-top: 12px;
+  }
+
+  /* ---- summary tiles ---- */
+  .totals {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+    background: var(--line-soft); border: 1px solid var(--line-soft);
+  }
+  .totals .tile { background: var(--surface); padding: 14px 16px; }
+  .totals .tile .k {
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-dim);
+  }
+  .totals .tile .v {
+    font-family: var(--f-display); font-size: 1.7rem; line-height: 1.1; margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .totals .tile .v small { font-family: var(--f-mono); font-size: .8rem; color: var(--text-dim); }
+  .totals .tile.wide { grid-column: 1 / -1; }
+
+  .notes {
+    font-size: .82rem; color: var(--text-dim); border-left: 2px solid var(--strut-a);
+    padding: 4px 0 4px 14px; margin-top: 6px;
+  }
+  .notes b { color: var(--text); font-weight: 600; }
+
+  footer.colophon {
+    margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-family: var(--f-mono); font-size: 11px; color: var(--text-dim); letter-spacing: .04em;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&display=swap" />
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="titleblock">
+      <div class="eyebrow">Hub &amp; Strut · Icosahedral</div>
+      <h1><span class="freq">2ν</span> Dome Pole Planner</h1>
+      <p class="standfirst">Set the ground radius and how much each hub swallows, and every strut length falls out — the full cut list, the piles to sort, and the poles to buy. Cut it at the equator for the classic 26-hub dome, or at the shoulder ring for something lower and wider.</p>
+    </div>
+    <button class="theme-toggle" id="themeBtn" type="button">Invert sheet</button>
+  </header>
+
+  <div class="workbench">
+    <!-- DRAWING -->
+    <section class="drawing" aria-label="Dome model">
+      <div class="drawing-head">
+        <span>Model · drag to orbit</span>
+        <span class="sheet-no" id="sheetScale">1 : —</span>
+      </div>
+      <canvas class="elevation" id="elev" width="1040" height="760" role="img"
+        aria-label="Interactive three-dimensional view of the two-frequency geodesic dome, drag to rotate"></canvas>
+      <div class="drawing-foot">
+        <span id="legend" style="display:flex;flex-wrap:wrap;gap:6px 20px"></span>
+        <span class="legend-item"><span class="swatch dashed"></span> far side</span>
+        <button type="button" id="spinBtn" class="theme-toggle" style="margin-left:auto">Pause spin</button>
+      </div>
+    </section>
+
+    <!-- CONTROLS + OUTPUT -->
+    <div class="panel">
+      <fieldset>
+        <legend>Base</legend>
+        <div class="field">
+          <label>Cut the dome at</label>
+          <div class="seg" id="modeSeg" role="group" aria-label="Where the dome meets the ground">
+            <button type="button" data-mode="full" aria-pressed="true">Equator</button>
+            <button type="button" data-mode="shoulder" aria-pressed="false">Shoulder ring</button>
+          </div>
+          <p class="hint" id="baseNote"></p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Dome size</legend>
+        <div class="field">
+          <label for="rad">Ground radius</label>
+          <input type="number" id="rad" min="0.5" step="0.05" value="3" />
+          <p class="hint">Centre of the floor out to the furthest base hub. Everything else scales from it.</p>
+        </div>
+        <div class="field">
+          <label for="units">Units</label>
+          <div class="seg" role="group" aria-label="Units">
+            <button type="button" data-unit="m" aria-pressed="true">metres</button>
+            <button type="button" data-unit="ft" aria-pressed="false">feet</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Footprint &amp; height</label>
+          <output id="height" style="font-family:var(--f-mono)">—</output>
+          <p class="hint">Diameter across the ground ring, then apex height above it.</p>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Hub take-off</legend>
+        <div class="field">
+          <label for="hubGap">Take off each end</label>
+          <input type="number" id="hubGap" min="0" step="1" value="40" />
+          <p class="hint">Constant length (<span class="u-small">mm</span>) removed from <b>both</b> ends of every strut so it seats in the hub. Cut length = geometric chord − 2 × this.</p>
+        </div>
+        <div class="field">
+          <label for="stockLen">Stock length</label>
+          <input type="number" id="stockLen" min="0.1" step="0.1" value="2.4" />
+          <p class="hint">Length of one pole as bought.</p>
+        </div>
+        <div class="field">
+          <label for="waste">Cutting waste</label>
+          <input type="number" id="waste" min="0" max="60" step="1" value="10" />
+          <p class="hint">Percent added on bare lineal length when counting poles to buy.</p>
+        </div>
+      </fieldset>
+
+      <table class="cutlist">
+        <caption id="cutCaption">Cut list</caption>
+        <thead>
+          <tr><th scope="col">Strut</th><th scope="col">Qty</th><th scope="col">Chord</th><th scope="col">Cut to</th><th scope="col">Lineal</th></tr>
+        </thead>
+        <tbody id="cutBody"></tbody>
+        <tfoot>
+          <tr><td>Total</td><td id="totQty">—</td><td></td><td></td><td id="totLineal">—</td></tr>
+        </tfoot>
+      </table>
+      <p class="notes" id="ratioNote"></p>
+
+      <div class="totals">
+        <div class="tile">
+          <div class="k">Hubs</div>
+          <div class="v" id="tileHubs">—</div>
+        </div>
+        <div class="tile">
+          <div class="k">Apex height</div>
+          <div class="v" id="tileHeight">—</div>
+        </div>
+        <div class="tile wide">
+          <div class="k">Poles to buy</div>
+          <div class="v" id="polesToBuy">— <small id="polesDetail"></small></div>
+        </div>
+      </div>
+
+      <p class="notes" id="pilesNote"></p>
+    </div>
+  </div>
+
+  <footer class="colophon">
+    <span>Chord factors A 0.61803 · B 0.54653 (sphere radius = 1)</span>
+    <span id="colophonMode">2&#957; icosa · equator cut</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- 2V icosahedral dome constants ----
+  // Chord factors relative to sphere radius R.
+  var CF_A = 0.61803399;   // long strut  (triangle legs to pentagon points)
+  var CF_B = 0.54653306;   // short strut (pentagon rings + ground ring)
+  // (strut counts are derived from the built geometry, not assumed)
+
+  // Sizing is measured from the built mesh each recalc (plan radius of the bottom
+  // ring, apex height above the floor), so the numbers always match the drawing.
+
+  // base: "full"     = cut at the equator (canonical 26-hub 2V dome, already flat)
+  //       "shoulder" = cut at the zig-zag ring higher up, flattened onto one plane
+  var MODE = { base: "full" };
+
+  var els = {
+    rad: document.getElementById("rad"),
+    stockLen: document.getElementById("stockLen"),
+    hubGap: document.getElementById("hubGap"),
+    waste: document.getElementById("waste"),
+    height: document.getElementById("height"),
+    cutBody: document.getElementById("cutBody"),
+    totQty: document.getElementById("totQty"),
+    totLineal: document.getElementById("totLineal"),
+    tileHubs: document.getElementById("tileHubs"),
+    tileHeight: document.getElementById("tileHeight"),
+    pilesNote: document.getElementById("pilesNote"),
+    polesToBuy: document.getElementById("polesToBuy"),
+    polesDetail: document.getElementById("polesDetail"),
+    ratioNote: document.getElementById("ratioNote"),
+    sheetScale: document.getElementById("sheetScale"),
+    elev: document.getElementById("elev"),
+    themeBtn: document.getElementById("themeBtn"),
+    cutCaption: document.getElementById("cutCaption"),
+    modeSeg: document.getElementById("modeSeg"),
+    baseNote: document.getElementById("baseNote"),
+    legend: document.getElementById("legend"),
+    spinBtn: document.getElementById("spinBtn"),
+    colophonMode: document.getElementById("colophonMode")
+  };
+
+  var unit = "m";   // "m" | "ft"
+  function unitLabel() { return unit === "m" ? "m" : "ft"; }
+  function smallUnit() { return unit === "m" ? "mm" : "in"; }
+  function small2big() { return unit === "m" ? 1000 : 12; }  // mm per m / in per ft
+
+  document.querySelectorAll(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (b.dataset.unit === unit) return;
+      document.querySelectorAll(".seg button").forEach(function (x) {
+        x.setAttribute("aria-pressed", String(x.dataset.unit === b.dataset.unit));
+      });
+      unit = b.dataset.unit;
+      // convert length inputs so the physical dome stays put
+      var k = unit === "ft" ? 1 / 0.3048 : 0.3048;      // m->ft or ft->m
+      var kSmall = unit === "ft" ? 1 / 25.4 : 25.4;     // mm->in or in->mm
+      els.rad.value = round(parseFloat(els.rad.value) * k, 3);
+      els.stockLen.value = round(parseFloat(els.stockLen.value) * k, 3);
+      els.hubGap.value = round(parseFloat(els.hubGap.value) * kSmall, unit === "ft" ? 2 : 0);
+      document.querySelectorAll(".u-small").forEach(function (s) { s.textContent = smallUnit(); });
+      recalc();
+    });
+  });
+
+  ["rad", "stockLen", "hubGap", "waste"].forEach(function (id) {
+    els[id].addEventListener("input", recalc);
+  });
+
+  els.modeSeg.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-mode]");
+    if (!b || b.dataset.mode === MODE.base) return;
+    MODE.base = b.dataset.mode;
+    els.modeSeg.querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.mode === MODE.base));
+    });
+    recalc();
+  });
+
+  function round(n, p) {
+    var f = Math.pow(10, p || 0);
+    return Math.round(n * f) / f;
+  }
+  function fmt(n, p) {
+    return round(n, p == null ? 3 : p).toLocaleString(undefined, {
+      minimumFractionDigits: p == null ? 0 : 0,
+      maximumFractionDigits: p == null ? 3 : p
+    });
+  }
+
+  var TYPE_META = {
+    A: { cls: "a", label: "A", role: "triangle legs" },
+    B: { cls: "b", label: "B", role: "pentagon rings" },
+    C: { cls: "c", label: "C", role: "flattened base ring" },
+    D: { cls: "d", label: "D", role: "base risers" }
+  };
+
+  function recalc() {
+    var groundR = parseFloat(els.rad.value);            // big units (m / ft)
+    var stock   = parseFloat(els.stockLen.value);       // big units
+    var takeoff = parseFloat(els.hubGap.value);         // small units, per end
+    var wastePct = parseFloat(els.waste.value);
+
+    if (!isFinite(groundR) || groundR <= 0) return;
+
+    // Sphere radius from the ground-ring radius the user typed. The bottom ring's
+    // plan radius is the same in both modes (flattening moves y only), so this
+    // holds whichever mode is active.
+    var geoUnit = domeGeometry(1, MODE.base);
+    var planR = 0;
+    geoUnit.forEach(function (e) {
+      [e.a, e.b].forEach(function (p) {
+        planR = Math.max(planR, Math.hypot(p[0], p[2]));
+      });
+    });
+    var R = groundR / planR;                            // sphere radius
+    var D = groundR * 2;
+
+    // real geometry at true scale
+    var edges = domeGeometry(R, MODE.base);
+    var yMin = Infinity, yMax = -Infinity;
+    edges.forEach(function (e) {
+      yMin = Math.min(yMin, e.a[1], e.b[1]);
+      yMax = Math.max(yMax, e.a[1], e.b[1]);
+    });
+    var height = yMax - yMin;
+
+    // group struts by type, rounding length to 0.1 mm so identical cuts merge
+    var groups = {};
+    edges.forEach(function (e) {
+      var k = e.type + "@" + Math.round(e.len * 10000);
+      if (!groups[k]) groups[k] = { type: e.type, chord: e.len, qty: 0 };
+      groups[k].qty++;
+    });
+    var rows = Object.keys(groups).map(function (k) { return groups[k]; });
+    // sort: A, B, C, D then longest first
+    var order = { A: 0, B: 1, C: 2, D: 3 };
+    rows.sort(function (m, n) {
+      return order[m.type] - order[n.type] || n.chord - m.chord;
+    });
+    // if a type splits into several near-identical lengths, suffix them A1, A2…
+    var seenType = {};
+    rows.forEach(function (r) { seenType[r.type] = (seenType[r.type] || 0) + 1; });
+    var idx = {};
+    rows.forEach(function (r) {
+      if (seenType[r.type] > 1) {
+        idx[r.type] = (idx[r.type] || 0) + 1;
+        r.tag = r.type + idx[r.type];
+      } else {
+        r.tag = r.type;
+      }
+    });
+
+    var toBig = isFinite(takeoff) ? takeoff / small2big() : 0;   // per end, big units
+    var totalQty = 0, linealTotal = 0;
+    rows.forEach(function (r) {
+      r.cut = r.chord - 2 * toBig;
+      r.lineal = Math.max(r.cut, 0) * r.qty;
+      totalQty += r.qty;
+      linealTotal += r.lineal;
+    });
+
+    // footprint: the base hubs may alternate between two plan radii (shoulder cut)
+    var baseY = yMin, radii = {};
+    edges.forEach(function (e) {
+      [e.a, e.b].forEach(function (p) {
+        if (Math.abs(p[1] - baseY) < 1e-9) radii[Math.hypot(p[0], p[2]).toFixed(4)] = 1;
+      });
+    });
+    var rList = Object.keys(radii).map(parseFloat).sort(function (m, n) { return m - n; });
+    els.height.textContent = rList.length > 1
+      ? "⌀ " + fmt(rList[0] * 2, 2) + "–" + fmt(rList[rList.length - 1] * 2, 2) + " · h " + fmt(height, 2) + " " + unitLabel()
+      : "⌀ " + fmt(D, 2) + " · h " + fmt(height, 2) + " " + unitLabel();
+    els.tileHeight.innerHTML = fmt(height, 2) + ' <small>' + unitLabel() + '</small>';
+
+    els.cutBody.innerHTML = rows.map(function (r) {
+      var bad = r.cut <= 0;
+      var meta = TYPE_META[r.type];
+      return '<tr>' +
+        '<td><span class="strut-tag"><span class="dot ' + meta.cls + '"></span>' + r.tag + '</span></td>' +
+        '<td>' + r.qty + '</td>' +
+        '<td>' + fmt(r.chord, 3) + '</td>' +
+        '<td' + (bad ? ' style="color:var(--critical)"' : '') + '>' +
+          (bad ? 'take-off too big' : fmt(r.cut, 3)) + '</td>' +
+        '<td>' + fmt(r.lineal, 2) + '</td>' +
+        '</tr>';
+    }).join("");
+
+    els.cutCaption.textContent = "Cut list — " + totalQty + " struts, all lengths in " + unitLabel();
+
+    // legend under the model mirrors the cut list
+    var byType = {};
+    rows.forEach(function (r) { byType[r.type] = (byType[r.type] || 0) + r.qty; });
+    els.legend.innerHTML = ["A", "B", "C", "D"].filter(function (t) { return byType[t]; })
+      .map(function (t) {
+        return '<span class="legend-item"><span class="swatch ' + TYPE_META[t].cls + '"></span>' +
+          t + ' · ' + byType[t] + '</span>';
+      }).join("");
+    els.totQty.textContent = totalQty;
+    els.totLineal.textContent = fmt(linealTotal, 2);
+
+    // hub count = unique vertices
+    var vset = {};
+    edges.forEach(function (e) {
+      [e.a, e.b].forEach(function (p) { vset[p.map(function (x) { return x.toFixed(3); }).join(",")] = 1; });
+    });
+    var hubCount = Object.keys(vset).length;
+    els.tileHubs.innerHTML = hubCount + ' <small>nodes</small>';
+
+    els.ratioNote.innerHTML =
+      "Take <b>" + (isFinite(takeoff) ? fmt(takeoff, unit === "ft" ? 2 : 0) : 0) + " " + smallUnit() +
+      "</b> off each end of every strut — the <em>cut to</em> column is what your saw sees.";
+
+    els.pilesNote.innerHTML = MODE.base === "full"
+      ? "<b>Cut at the equator.</b> The canonical 2&#957; dome — 26 hubs, 65 struts, only two strut " +
+        "lengths. Its ten base hubs already land on one level plane, so it stands flat with no packing " +
+        "and no special parts."
+      : "<b>Cut at the shoulder ring.</b> A shallower dome standing on the ten-point zig-zag line. Those " +
+        "hubs alternate in height on the true sphere, so the five raised ones are dropped to the floor " +
+        "plane — which re-lengthens the struts touching them into the <b>C</b> (base ring) and <b>D</b> " +
+        "(sloping) rows. Everything above the cut stays exact A and B.";
+
+    els.colophonMode.innerHTML = "2&#957; icosa · " +
+      (MODE.base === "full" ? "equator cut · " : "shoulder cut · ") + hubCount + " hubs · " + totalQty + " struts";
+
+    els.baseNote.innerHTML = MODE.base === "full"
+      ? "Half sphere. Base ring is naturally flat — two strut lengths only."
+      : "Shallower. Zig-zag ring forced level, adding C / D lengths.";
+
+    // poles to buy: per-type yield from one stock length, floored by lineal+waste
+    var withWaste = linealTotal * (1 + (isFinite(wastePct) ? wastePct : 0) / 100);
+    var polesByLength = stock > 0 ? Math.ceil(withWaste / stock) : Infinity;
+
+    var polesByYield = 0, yieldOk = true, detail = [];
+    rows.forEach(function (r) {
+      var per = r.cut > 0 ? Math.floor(stock / r.cut) : 0;
+      if (per < 1) { yieldOk = false; return; }
+      var n = Math.ceil(r.qty / per);
+      polesByYield += n;
+      detail.push(n + "×" + r.tag);
+    });
+
+    var poles = yieldOk ? Math.max(polesByLength, polesByYield) : polesByLength;
+    els.polesToBuy.firstChild.nodeValue = isFinite(poles) ? poles + " " : "— ";
+    els.polesDetail.textContent = yieldOk
+      ? "× " + fmt(stock, 2) + " " + unitLabel() + "  ·  " + detail.join(" + ")
+      : "× " + fmt(stock, 2) + " " + unitLabel() + " — a pole is shorter than one strut";
+
+    drawElevation(R);
+  }
+
+  // ---------- 2V dome geometry ----------
+  // Pentagon-up icosahedron, top 3/8 subdivided once (apex cap + both upper bands
+  // + the upper half of the lower band). Vertices projected to the sphere of
+  // radius R. The natural bottom ring is a 10-vertex zig-zag: 5 lower-pentagon
+  // hubs sit ~0.4 R higher than the 5 hubs between them, so the base is NOT flat.
+  //
+  // flatBase = true  ->  every bottom-ring vertex is dropped to the common floor
+  // plane y = y_floor (lowest natural vertex), x/z kept. The struts that touch a
+  // moved vertex are re-measured: the zig-zag base chords become type C, and the
+  // slanted struts feeding the raised hubs become type D. All upper struts stay
+  // exactly A / B.
+  function domeGeometry(R, flatBase) {
+    var lat = Math.atan(0.5);
+    var IV = [[0, 1, 0]];
+    var i;
+    for (i = 0; i < 5; i++) {
+      var a = i * 72 * Math.PI / 180;
+      IV.push([Math.cos(lat) * Math.cos(a), Math.sin(lat), Math.cos(lat) * Math.sin(a)]);
+    }
+    for (i = 0; i < 5; i++) {
+      var a2 = (i * 72 + 36) * Math.PI / 180;
+      IV.push([Math.cos(lat) * Math.cos(a2), -Math.sin(lat), Math.cos(lat) * Math.sin(a2)]);
+    }
+    IV.push([0, -1, 0]);   // 11: nadir
+
+    // apex cap (5) + upper band (10) + lower band (5) = 20 triangles to subdivide
+    var faces = [];
+    for (i = 0; i < 5; i++) {
+      faces.push([0, 1 + i, 1 + (i + 1) % 5]);
+      faces.push([1 + i, 6 + i, 1 + (i + 1) % 5]);
+      faces.push([1 + (i + 1) % 5, 6 + i, 6 + (i + 1) % 5]);
+      faces.push([6 + i, 11, 6 + (i + 1) % 5]);            // lower band (points at nadir)
+    }
+
+    var verts = {};
+    function norm(v) { var m = Math.hypot(v[0], v[1], v[2]); return [v[0] / m, v[1] / m, v[2] / m]; }
+    function key(v) { return v.map(function (x) { return x.toFixed(4); }).join(","); }
+    function add(v) { var n = norm(v), k = key(n); if (!verts[k]) verts[k] = n; return k; }
+    function mid(a, b) { return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]; }
+
+    var edgeKeys = {};
+    var rawEdges = [];   // {ka, kb}
+    function edge(ka, kb) {
+      var k = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+      if (edgeKeys[k]) return;
+      edgeKeys[k] = 1;
+      rawEdges.push({ ka: ka, kb: kb });
+    }
+
+    faces.forEach(function (f) {
+      var A = IV[f[0]], B = IV[f[1]], C = IV[f[2]];
+      var kA = add(A), kB = add(B), kC = add(C);
+      var kAB = add(mid(A, B)), kBC = add(mid(B, C)), kCA = add(mid(C, A));
+      edge(kA, kAB); edge(kAB, kB);
+      edge(kB, kBC); edge(kBC, kC);
+      edge(kC, kCA); edge(kCA, kA);
+      edge(kAB, kBC); edge(kBC, kCA); edge(kCA, kAB);
+    });
+
+    var TOL = 1e-4;
+    // Ring latitudes present in the subdivided mesh (unit sphere), top down:
+    //   1.0000  apex                       1 hub
+    //   0.8507  upper pentagon             5
+    //   0.5257  icosa upper-pentagon ring  5   ┐ these two interleave into the
+    //   0.4472  subdivision ring           5   ┘ 10-point zig-zag "shoulder" line
+    //   0.0000  equator                   10   flat, canonical dome base
+    var Y_EQUATOR = 0;
+    var Y_ZIGZAG_LO = Math.min(0.5257311, Math.cos(lat) === 0 ? 1 : Math.sin(lat));  // 0.4472
+    var Y_ZIGZAG_HI = 0.52573111;
+
+    // Which ring do we stand the dome on?
+    //   "full"  : cut at the equator — the canonical 26-hub / 65-strut 2V dome,
+    //             whose 10 base hubs are already coplanar.
+    //   "shoulder": cut at the 10-point zig-zag ring higher up, then flatten it
+    //             onto one plane so a shallower dome still sits level.
+    var cutAtShoulder = (flatBase === "shoulder");
+    var yFloor = cutAtShoulder ? Y_ZIGZAG_LO : Y_EQUATOR;
+
+    var pos = {};
+    Object.keys(verts).forEach(function (k) {
+      var p = verts[k];
+      var y = p[1];
+      var onZig = cutAtShoulder &&
+        (Math.abs(y - Y_ZIGZAG_LO) < 1e-3 || Math.abs(y - Y_ZIGZAG_HI) < 1e-3);
+      var moved = onZig && Math.abs(y - Y_ZIGZAG_HI) < 1e-3;   // the raised ones drop
+      if (onZig) y = yFloor;
+      pos[k] = { p: [p[0] * R, y * R, p[2] * R], base: onZig, moved: moved };
+    });
+
+    var CFa = CF_A * R, CFb = CF_B * R;
+    var out = [];
+    rawEdges.forEach(function (e) {
+      var va = pos[e.ka], vb = pos[e.kb];
+      if (va.p[1] < yFloor * R - TOL || vb.p[1] < yFloor * R - TOL) return;   // below the cut
+      var pa = va.p, pb = vb.p;
+      var L = Math.hypot(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]);
+      var type;
+      if (va.moved || vb.moved) {
+        // this strut changed length when a hub was dropped to the floor plane
+        type = (va.base && vb.base) ? "C" : "D";
+      } else {
+        type = Math.abs(L - CFa) <= Math.abs(L - CFb) ? "A" : "B";
+      }
+      out.push({ a: pa.slice(), b: pb.slice(), type: type, len: L });
+    });
+    return out;
+  }
+
+  function domeVertices(R) { return domeGeometry(R, MODE.base); }
+
+  // ---------- 3D canvas renderer ----------
+  var cv = els.elev;
+  var ctx = cv.getContext("2d");
+  var view = { yaw: -0.55, pitch: 0.42, spin: true, dragging: false, lastX: 0, lastY: 0 };
+  var model = { edges: [], nodes: [], radius: 1, groundY: 0 };
+
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
+  }
+
+  function buildModel(R) {
+    var edges = domeVertices(R);
+    // unique nodes for the hub dots
+    var nmap = {};
+    edges.forEach(function (e) {
+      [e.a, e.b].forEach(function (p) {
+        var k = p.map(function (x) { return x.toFixed(2); }).join(",");
+        if (!nmap[k]) nmap[k] = p;
+      });
+    });
+    var lowest = Infinity, planR = 0;
+    edges.forEach(function (e) {
+      lowest = Math.min(lowest, e.a[1], e.b[1]);
+      planR = Math.max(planR, Math.hypot(e.a[0], e.a[2]), Math.hypot(e.b[0], e.b[2]));
+    });
+    model = {
+      edges: edges,
+      nodes: Object.keys(nmap).map(function (k) { return nmap[k]; }),
+      radius: R,
+      groundY: lowest,
+      planR: planR
+    };
+  }
+
+  function render() {
+    var W = cv.width, H = cv.height;
+    ctx.clearRect(0, 0, W, H);
+
+    var cy = Math.cos(view.yaw), sy = Math.sin(view.yaw);
+    var cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
+    var R = model.radius;
+
+    // rotate about Y then about X; simple perspective
+    function rot(p) {
+      var x = p[0] * cy - p[2] * sy;
+      var z = p[0] * sy + p[2] * cy;
+      var y = p[1];
+      var y2 = y * cp - z * sp;
+      var z2 = y * sp + z * cp;
+      return [x, y2, z2];
+    }
+    var camDist = R * 4.4;
+    var fit = Math.min(W, H) * 0.30 / R;
+    function project(p) {
+      var r = rot(p);
+      var persp = camDist / (camDist - r[2]);
+      return {
+        x: W / 2 + r[0] * fit * persp,
+        y: H / 2 - (r[1] - model.groundY * 0.5) * fit * persp,
+        z: r[2]
+      };
+    }
+
+    // ground shadow ellipse
+    var gpts = [];
+    for (var a = 0; a < 40; a++) {
+      var t = a / 40 * Math.PI * 2;
+      gpts.push(project([Math.cos(t) * model.planR, model.groundY, Math.sin(t) * model.planR]));
+    }
+    ctx.beginPath();
+    gpts.forEach(function (g, i) { i ? ctx.lineTo(g.x, g.y) : ctx.moveTo(g.x, g.y); });
+    ctx.closePath();
+    ctx.fillStyle = cssVar("--line-soft");
+    ctx.globalAlpha = 0.5; ctx.fill(); ctx.globalAlpha = 1;
+
+    // project + depth sort edges (far first)
+    var drawn = model.edges.map(function (e) {
+      var pa = project(e.a), pb = project(e.b);
+      return { pa: pa, pb: pb, z: (pa.z + pb.z) / 2, type: e.type };
+    });
+    drawn.sort(function (m, n) { return m.z - n.z; });
+
+    var zs = drawn.map(function (d) { return d.z; });
+    var zmin = Math.min.apply(null, zs), zmax = Math.max.apply(null, zs);
+    var strutCol = {
+      A: cssVar("--strut-a"), B: cssVar("--strut-b"),
+      C: cssVar("--strut-c"), D: cssVar("--strut-d")
+    };
+    var far = cssVar("--text-dim");
+
+    ctx.lineCap = "round";
+    drawn.forEach(function (d) {
+      var frac = zmax > zmin ? (d.z - zmin) / (zmax - zmin) : 1;   // 0 far .. 1 near
+      var near = frac > 0.5;
+      ctx.beginPath();
+      ctx.moveTo(d.pa.x, d.pa.y);
+      ctx.lineTo(d.pb.x, d.pb.y);
+      if (near) {
+        ctx.strokeStyle = strutCol[d.type] || strutCol.A;
+        ctx.globalAlpha = 0.55 + 0.45 * frac;
+        ctx.lineWidth = (d.type === "A" ? 4.4 : 3.4) * (0.7 + 0.5 * frac);
+        ctx.setLineDash([]);
+      } else {
+        ctx.strokeStyle = far;
+        ctx.globalAlpha = 0.20 + 0.25 * frac;
+        ctx.lineWidth = 2.4;
+        ctx.setLineDash([4, 6]);
+      }
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+
+    // hub dots on near vertices
+    var ink = cssVar("--ink"), surf = cssVar("--surface");
+    model.nodes.map(project).sort(function (m, n) { return m.z - n.z; }).forEach(function (p) {
+      var frac = zmax > zmin ? (p.z - zmin) / (zmax - zmin) : 1;
+      if (frac < 0.5) return;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5.2 * (0.7 + 0.5 * frac), 0, Math.PI * 2);
+      ctx.fillStyle = ink;
+      ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = surf; ctx.stroke();
+    });
+  }
+
+  function drawElevation(R) {
+    buildModel(R);
+    render();
+    els.sheetScale.textContent = "⌀ " + fmt(model.planR * 2, 2) + " " + unitLabel();
+  }
+
+  // orbit + spin
+  function pointerDown(e) {
+    view.dragging = true;
+    var t = e.touches ? e.touches[0] : e;
+    view.lastX = t.clientX; view.lastY = t.clientY;
+  }
+  function pointerMove(e) {
+    if (!view.dragging) return;
+    var t = e.touches ? e.touches[0] : e;
+    view.yaw += (t.clientX - view.lastX) * 0.01;
+    view.pitch += (t.clientY - view.lastY) * 0.01;
+    view.pitch = Math.max(-0.15, Math.min(1.35, view.pitch));
+    view.lastX = t.clientX; view.lastY = t.clientY;
+    if (e.cancelable) e.preventDefault();
+    render();
+  }
+  function pointerUp() { view.dragging = false; }
+
+  cv.addEventListener("mousedown", pointerDown);
+  window.addEventListener("mousemove", pointerMove);
+  window.addEventListener("mouseup", pointerUp);
+  cv.addEventListener("touchstart", pointerDown, { passive: true });
+  cv.addEventListener("touchmove", pointerMove, { passive: false });
+  cv.addEventListener("touchend", pointerUp);
+
+  var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduceMotion) view.spin = false;
+
+  els.spinBtn.textContent = view.spin ? "Pause spin" : "Resume spin";
+  els.spinBtn.addEventListener("click", function () {
+    view.spin = !view.spin;
+    els.spinBtn.textContent = view.spin ? "Pause spin" : "Resume spin";
+  });
+
+  var lastT = 0;
+  function tick(now) {
+    if (view.spin && !view.dragging) {
+      var dt = lastT ? (now - lastT) / 1000 : 0;
+      view.yaw += dt * 0.35;
+      render();
+    }
+    lastT = now;
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  // ---------- theme toggle ----------
+  var THEME_KEY = "dome-planner-theme";
+  function applyTheme(t) {
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    else document.documentElement.removeAttribute("data-theme");
+    if (model.edges.length) render();   // canvas colours are baked in — repaint
+  }
+  try {
+    var saved = localStorage.getItem(THEME_KEY);
+    if (saved) applyTheme(saved);
+  } catch (e) {}
+  if (window.matchMedia) {
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+      if (model.edges.length) render();
+    });
+  }
+  els.themeBtn.addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    var mqDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next;
+    if (!cur) next = mqDark ? "light" : "dark";
+    else if (cur === "dark") next = "light";
+    else next = "dark";
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  });
+
+  recalc();
+})();
+</script>
