@@ -459,6 +459,14 @@
           </div>
           <p class="hint" id="baseNote"></p>
         </div>
+        <div class="field">
+          <label for="ropeBase">Ground ring</label>
+          <span class="seg" id="ropeSeg" role="group" aria-label="Ground ring">
+            <button type="button" data-rope="0" aria-pressed="true">Struts</button>
+            <button type="button" data-rope="1" aria-pressed="false">Rope</button>
+          </span>
+          <p class="hint" id="ropeNote">The bottom ring only takes tension, so a rope or strap can replace those poles.</p>
+        </div>
       </fieldset>
 
       <fieldset>
@@ -609,7 +617,7 @@
   //       crown = plan-radius multiplier on the upper pentagon (1 = true sphere)
   //       stretch = X-axis multiplier making the footprint oblong (1 = round)
   //       rise = Y multiplier about the floor plane, set from the height input
-  var MODE = { base: "full", crown: 1, stretch: 1, rise: 1 };
+  var MODE = { base: "full", crown: 1, stretch: 1, rise: 1, dropGround: false };
 
   // Hand edits to individual hubs, keyed by their ideal-mesh position:
   //   { radial: <sphere units, + is outward>, lift: <sphere units, + is up> }
@@ -642,6 +650,8 @@
     kerf: document.getElementById("kerf"),
     tol: document.getElementById("tol"),
     labelSeg: document.getElementById("labelSeg"),
+    ropeSeg: document.getElementById("ropeSeg"),
+    ropeNote: document.getElementById("ropeNote"),
     heightPct: document.getElementById("heightPct"),
     heightPctOut: document.getElementById("heightPctOut"),
     heightHint: document.getElementById("heightHint"),
@@ -901,7 +911,7 @@
     // and shatter its two chord lengths into dozens, so the ratio is measured
     // against a common reference (the circumscribed radius) instead. Equal
     // diameters therefore give a genuinely round dome with exactly two struts.
-    var geoUnit = domeGeometry(1, MODE.base, MODE.crown, 1);
+    var geoUnit = domeGeometry(1, MODE.base, MODE.crown, 1, 1, false);
     var unitBaseY = Infinity;
     geoUnit.forEach(function (e) { unitBaseY = Math.min(unitBaseY, e.a[1], e.b[1]); });
     var circumR = 0;
@@ -924,7 +934,7 @@
 
     // Natural height at this scale, before any vertical stretch. The height input
     // is then a target: rise scales Y about the floor plane to hit it exactly.
-    var natural = domeGeometry(R, MODE.base, MODE.crown, stretch, 1);
+    var natural = domeGeometry(R, MODE.base, MODE.crown, stretch, 1, false);
     var nLo = Infinity, nHi = -Infinity;
     natural.forEach(function (e) {
       nLo = Math.min(nLo, e.a[1], e.b[1]);
@@ -936,7 +946,7 @@
     MODE.rise = rise;
 
     // real geometry at true scale
-    var edges = domeGeometry(R, MODE.base, MODE.crown, stretch, rise);
+    var edges = domeGeometry(R, MODE.base, MODE.crown, stretch, rise, MODE.dropGround);
     var yMin = Infinity, yMax = -Infinity;
     edges.forEach(function (e) {
       yMin = Math.min(yMin, e.a[1], e.b[1]);
@@ -1121,6 +1131,17 @@
       if (!still) { SELECTED = null; renderVertexPanel(); }
     }
 
+    // Ground ring: report the perimeter either way, so the rope option tells you
+    // how much rope to buy and the strut option still shows what it replaces.
+    var ringEdges = domeGeometry(R, MODE.base, MODE.crown, stretch, rise, false)
+      .filter(function (e) { return e.ground; });
+    var ringLen = ringEdges.reduce(function (t, e) { return t + e.len; }, 0);
+    els.ropeNote.innerHTML = MODE.dropGround
+      ? "Bottom ring left out — allow <b>" + mm(ringLen) + " mm</b> of rope plus knots for " +
+        ringEdges.length + " spans. Those struts only take tension."
+      : "The bottom ring only takes tension, so a rope or strap can replace those " +
+        ringEdges.length + " poles (" + mm(ringLen) + " mm total).";
+
     // keep the current cut list around for CSV export
     LAST = { rows: rows, spanX: spanX, spanZ: spanZ, height: height, plan: plan };
 
@@ -1219,7 +1240,7 @@
   // moved vertex are re-measured: the zig-zag base chords become type C, and the
   // slanted struts feeding the raised hubs become type D. All upper struts stay
   // exactly A / B.
-  function domeGeometry(R, flatBase, crownScale, stretchScale, riseScale) {
+  function domeGeometry(R, flatBase, crownScale, stretchScale, riseScale, dropGround) {
     var lat = Math.atan(0.5);
     var IV = [[0, 1, 0]];
     var i;
@@ -1342,10 +1363,18 @@
 
     var CFa = CF_A * R, CFb = CF_B * R;
     var out = [];
+    var floorY = yFloor * R;
     rawEdges.forEach(function (e) {
       var va = pos[e.ka], vb = pos[e.kb];
-      if (va.p[1] < yFloor * R - TOL || vb.p[1] < yFloor * R - TOL) return;   // below the cut
+      if (va.p[1] < floorY - TOL || vb.p[1] < floorY - TOL) return;   // below the cut
       var pa = va.p, pb = vb.p;
+
+      // A ground-ring strut has both ends on the floor plane. Those close the
+      // base polygon and take tension only, so they can be a rope or a strap
+      // instead of a pole — dropping them is a real build option.
+      var onGround = Math.abs(pa[1] - floorY) < 1e-6 && Math.abs(pb[1] - floorY) < 1e-6;
+      if (onGround && dropGround) return;
+
       var L = Math.hypot(pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]);
       var type;
       if (va.moved || vb.moved) {
@@ -1363,14 +1392,14 @@
       if (va.edited || vb.edited) type = "G";   // hand-moved hub: bespoke length
       out.push({
         a: pa.slice(), b: pb.slice(), type: type, len: L,
-        ka: va.key, kb: vb.key
+        ka: va.key, kb: vb.key, ground: onGround
       });
     });
     return out;
   }
 
   function domeVertices(R) {
-    return domeGeometry(R, MODE.base, MODE.crown, MODE.stretch, MODE.rise);
+    return domeGeometry(R, MODE.base, MODE.crown, MODE.stretch, MODE.rise, MODE.dropGround);
   }
 
   // ---------- 3D canvas renderer ----------
@@ -1675,6 +1704,16 @@
   requestAnimationFrame(tick);
 
   // ---------- edge labels & cross-highlighting ----------
+  els.ropeSeg.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-rope]");
+    if (!b) return;
+    MODE.dropGround = b.dataset.rope === "1";
+    els.ropeSeg.querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String((x.dataset.rope === "1") === MODE.dropGround));
+    });
+    recalc();
+  });
+
   els.labelSeg.addEventListener("click", function (ev) {
     var b = ev.target.closest("button[data-labels]");
     if (!b) return;
@@ -1792,6 +1831,7 @@
     return {
       fields: f,
       base: MODE.base,
+      dropGround: MODE.dropGround,
       stock: stock.map(function (s) { return { len: s.len, qty: s.qty }; }),
       vertexMoves: VERTEX_MOVES
     };
@@ -1812,6 +1852,10 @@
           if (data.fields[id] != null && els[id]) els[id].value = data.fields[id];
         });
       }
+      MODE.dropGround = !!data.dropGround;
+      els.ropeSeg.querySelectorAll("button").forEach(function (x) {
+        x.setAttribute("aria-pressed", String((x.dataset.rope === "1") === MODE.dropGround));
+      });
       if (data.base === "full" || data.base === "shoulder") {
         MODE.base = data.base;
         els.modeSeg.querySelectorAll("button").forEach(function (b) {
@@ -1825,6 +1869,9 @@
       }
       VERTEX_MOVES = (data.vertexMoves && typeof data.vertexMoves === "object") ? data.vertexMoves : {};
       SELECTED = null;
+      // MODE.crown is otherwise only written by the slider's own handler, so a
+      // restore has to set it too or the crown spread is silently ignored.
+      MODE.crown = (parseFloat(els.crown.value) || 100) / 100;
       if (els.crownOut) els.crownOut.textContent = els.crown.value + "%";
       if (els.heightPctOut) els.heightPctOut.textContent = els.heightPct.value + "%";
     } finally {
@@ -1935,11 +1982,16 @@
     VERTEX_MOVES = {};
     SELECTED = null;
     MODE.base = "full";
+    MODE.dropGround = false;
+    els.ropeSeg.querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.rope === "0"));
+    });
     els.modeSeg.querySelectorAll("button").forEach(function (b) {
       b.setAttribute("aria-pressed", String(b.dataset.mode === "full"));
     });
     var d = DEFAULTS;
     SAVE_FIELDS.forEach(function (id) { els[id].value = d[id]; });
+    MODE.crown = (parseFloat(els.crown.value) || 100) / 100;
     els.crownOut.textContent = els.crown.value + "%";
     els.heightPctOut.textContent = els.heightPct.value + "%";
     stock = DEFAULT_STOCK.map(function (x) { return { len: x.len, qty: x.qty }; });
