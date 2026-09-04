@@ -1179,7 +1179,7 @@
     var plan = packPieces(pieces, stockM, kerfM);
     renderPlan(plan, linealTotal);
 
-    drawElevation(R);
+    drawElevation(R, edges);
 
     // a hub can vanish when the cut changes; drop a stale selection
     if (SELECTED) {
@@ -1497,8 +1497,11 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
   }
 
-  function buildModel(R) {
-    var edges = domeVertices(R);
+  // `edges` comes from recalc already stamped with each strut's cut-list row and
+  // id. Regenerating geometry here instead would drop those, leaving the 3D view
+  // unable to label individual struts.
+  function buildModel(R, edges) {
+    if (!edges) edges = domeVertices(R);
     // unique nodes for the hub dots, each carrying the mesh key it came from so
     // a click in the 3D view can be tied back to a per-vertex override
     var nmap = {};
@@ -1639,9 +1642,13 @@
       ctx.textBaseline = "middle";
       drawn.forEach(function (d) {
         var frac = zmax > zmin ? (d.z - zmin) / (zmax - zmin) : 1;
-        if (frac <= 0.5 || !d.tag) return;
+        if (!d.tag) return;
+        var near = frac > 0.5;
+        // Far-side struts are labelled too, just faded, so every strut is named
+        // at once rather than half of them disappearing as the model turns.
+        if (!near && LABELS !== "id" && LABELS !== "all") return;
         var mx = (d.pa.x + d.pb.x) / 2, my = (d.pa.y + d.pb.y) / 2;
-        edgeHits.push({ x: mx, y: my, tag: d.tag, z: d.z });
+        if (near) edgeHits.push({ x: mx, y: my, tag: d.tag, z: d.z });
         if (LABELS === "one") {
           if (seenTag[d.tag]) return;
           seenTag[d.tag] = 1;
@@ -1653,7 +1660,7 @@
         var text = (LABELS === "id") ? d.id : d.tag;
         var w = ctx.measureText(text).width + 10;
         ctx.fillStyle = lit2 ? hot : cssVar("--surface");
-        ctx.globalAlpha = lit2 ? 1 : 0.88;
+        ctx.globalAlpha = lit2 ? 1 : (near ? 0.9 : 0.42);
         ctx.beginPath();
         if (ctx.roundRect) ctx.roundRect(mx - w / 2, my - 10, w, 20, 4);
         else ctx.rect(mx - w / 2, my - 10, w, 20);   // older Safari
@@ -1662,9 +1669,10 @@
           ctx.strokeStyle = strutCol[d.type] || strutCol.A;
           ctx.lineWidth = 1.5; ctx.stroke();
         }
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = lit2 ? 1 : (near ? 1 : 0.5);
         ctx.fillStyle = lit2 ? cssVar("--surface") : cssVar("--text");
         ctx.fillText(text, mx, my + 0.5);
+        ctx.globalAlpha = 1;
       });
     } else {
       edgeHits = [];
@@ -1709,8 +1717,8 @@
     });
   }
 
-  function drawElevation(R) {
-    buildModel(R);
+  function drawElevation(R, edges) {
+    buildModel(R, edges);
     render();
     els.sheetScale.textContent = Math.abs(model.spanX - model.spanZ) > 1e-4
       ? mm(model.spanZ * 2) + " × " + mm(model.spanX * 2) + " mm"
