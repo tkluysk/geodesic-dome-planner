@@ -184,6 +184,10 @@
   .field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px 12px; padding: 9px 0; border-bottom: 1px dotted var(--line-soft); }
   .field:last-child { border-bottom: none; }
   .field label { font-size: .9rem; }
+  .unit {
+    font-family: var(--f-mono); font-size: .7rem; color: var(--text-dim);
+    letter-spacing: .06em; margin-left: 3px;
+  }
   .field .hint { grid-column: 1 / -1; font-size: .78rem; color: var(--text-dim); margin-top: -2px; }
   .field input[type="number"], .field select {
     font-family: var(--f-mono); font-size: .95rem;
@@ -205,6 +209,51 @@
   }
   .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
   .seg button:focus-visible { outline: 2px solid var(--strut-b); outline-offset: -2px; }
+
+  /* ---- stock inventory ---- */
+  .stock-head, .stock-row {
+    display: grid; grid-template-columns: 1fr 76px 30px; gap: 8px; align-items: center;
+  }
+  .stock-head {
+    font-family: var(--f-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--text-dim); padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  }
+  .stock-row { padding: 5px 0; border-bottom: 1px dotted var(--line-soft); }
+  .stock-row input {
+    font-family: var(--f-mono); font-size: .9rem; width: 100%; text-align: right;
+    padding: 5px 7px; border: 1px solid var(--line); border-radius: 2px;
+    background: var(--surface); color: var(--text);
+  }
+  .stock-row input:focus-visible {
+    outline: 2px solid var(--strut-b); outline-offset: 1px; border-color: var(--strut-b);
+  }
+  .stock-row button {
+    background: none; border: none; cursor: pointer; color: var(--text-dim);
+    font-size: 1.1rem; line-height: 1; padding: 4px; border-radius: 2px;
+  }
+  .stock-row button:hover { color: var(--critical); }
+  .stock-row button:focus-visible { outline: 2px solid var(--strut-b); outline-offset: 0; }
+  .stock-actions {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px;
+  }
+
+  /* ---- cutting plan ---- */
+  .plan { display: flex; flex-direction: column; gap: 7px; }
+  .plan-row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: center; }
+  .plan-label {
+    font-family: var(--f-mono); font-size: .76rem; color: var(--text-dim);
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .plan-bar {
+    display: flex; height: 20px; background: var(--paper-2);
+    border: 1px solid var(--line-soft); border-radius: 2px; overflow: hidden;
+  }
+  .plan-piece {
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--f-mono); font-size: 9px; color: #fff;
+    border-right: 1px solid rgba(255,255,255,.45); overflow: hidden; white-space: nowrap;
+  }
+  .plan-drop { background: repeating-linear-gradient(45deg, transparent, transparent 3px, var(--line) 3px, var(--line) 5px); }
 
   .rangebox { display: inline-flex; align-items: center; gap: 10px; }
   .rangebox output {
@@ -303,7 +352,7 @@
     <div class="titleblock">
       <div class="eyebrow">Hub &amp; Strut · Icosahedral</div>
       <h1><span class="freq">2ν</span> Dome Pole Planner</h1>
-      <p class="standfirst">Set the ground radius and how much each hub swallows, and every strut length falls out — the full cut list, the piles to sort, and the poles to buy. Cut it at the equator for the classic 26-hub dome, or at the shoulder ring for something lower and wider.</p>
+      <p class="standfirst">Set the two footprint diameters and how much each hub swallows, and every strut length falls out — the full cut list, the piles to sort, and the poles to buy. Cut it at the equator for the classic 26-hub dome, or at the shoulder ring for something lower and wider.</p>
     </div>
     <button class="theme-toggle" id="themeBtn" type="button">Invert sheet</button>
   </header>
@@ -341,12 +390,17 @@
       <fieldset>
         <legend>Dome size</legend>
         <div class="field">
-          <label for="rad">Ground radius</label>
-          <input type="number" id="rad" min="0.5" step="0.05" value="3" />
-          <p class="hint" id="radHint">Centre of the floor out to the ring the dome stands on.</p>
+          <label for="diaShort">Short diameter <span class="unit">mm</span></label>
+          <input type="number" id="diaShort" min="500" step="100" value="3400" />
+          <p class="hint">Across the narrow axis of the footprint, hub to hub.</p>
         </div>
         <div class="field">
-          <label for="crown">Top ring spread</label>
+          <label for="diaLong">Long diameter <span class="unit">mm</span></label>
+          <input type="number" id="diaLong" min="500" step="100" value="4000" />
+          <p class="hint" id="oblongHint">Across the wide axis. Set it equal to the short one for a round dome.</p>
+        </div>
+        <div class="field">
+          <label for="crown">Top ring spread <span class="unit">%</span></label>
           <span class="rangebox">
             <input type="range" id="crown" min="100" max="160" step="1" value="100" />
             <output id="crownOut">100%</output>
@@ -354,7 +408,7 @@
           <p class="hint" id="crownHint">Pushes the five crown hubs outward, flattening the cap. 100% is the true sphere.</p>
         </div>
         <div class="field">
-          <label>Footprint &amp; height</label>
+          <label>Footprint &amp; height <span class="unit">mm</span></label>
           <output id="height" style="font-family:var(--f-mono)">—</output>
           <p class="hint">Diameter across the ground ring, then apex height above it.</p>
         </div>
@@ -363,19 +417,30 @@
       <fieldset>
         <legend>Hub take-off</legend>
         <div class="field">
-          <label for="hubGap">Take off each end</label>
+          <label for="hubGap">Take off each end <span class="unit">mm</span></label>
           <input type="number" id="hubGap" min="0" step="1" value="43" />
           <p class="hint">Millimetres removed from <b>both</b> ends of every strut so it seats in the hub. Cut length = chord − 2 × this.</p>
         </div>
         <div class="field">
-          <label for="stockLen">Stock length</label>
-          <input type="number" id="stockLen" min="0.1" step="0.1" value="2.4" />
-          <p class="hint">Length of one pole as bought.</p>
+          <label for="kerf">Saw kerf <span class="unit">mm</span></label>
+          <input type="number" id="kerf" min="0" step="0.5" value="3" />
+          <p class="hint">Millimetres lost per cut. Counted between pieces on the same pole.</p>
         </div>
-        <div class="field">
-          <label for="waste">Cutting waste</label>
-          <input type="number" id="waste" min="0" max="60" step="1" value="10" />
-          <p class="hint">Percent added on bare lineal length when counting poles to buy.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Stock on hand</legend>
+        <p class="hint" style="margin:0 0 10px">
+          Up to 20 pole lengths. Leave a quantity blank for “as many as needed”; give a
+          number to cap what you actually have.
+        </p>
+        <div class="stock-head">
+          <span>Length (mm)</span><span>Have</span><span></span>
+        </div>
+        <div id="stockRows"></div>
+        <div class="stock-actions">
+          <button type="button" id="addStock" class="theme-toggle">Add length</button>
+          <span class="hint" id="stockCount" style="margin:0"></span>
         </div>
       </fieldset>
 
@@ -400,11 +465,19 @@
           <div class="k">Apex height</div>
           <div class="v" id="tileHeight">—</div>
         </div>
-        <div class="tile wide">
-          <div class="k">Poles to buy</div>
-          <div class="v" id="polesToBuy">— <small id="polesDetail"></small></div>
+        <div class="tile">
+          <div class="k">Poles used</div>
+          <div class="v" id="tilePoles">—</div>
+        </div>
+        <div class="tile">
+          <div class="k">Offcut waste</div>
+          <div class="v" id="tileWaste">—</div>
         </div>
       </div>
+
+      <h2 style="font-size:.95rem;font-family:var(--f-mono);font-weight:400;letter-spacing:.18em;text-transform:uppercase;color:var(--ink);border-bottom:1px solid var(--ink);padding-bottom:8px;margin-top:4px">Cutting plan</h2>
+      <div class="plan" id="planRows"></div>
+      <p class="notes" id="planNote"></p>
 
       <p class="notes" id="pilesNote"></p>
     </div>
@@ -432,13 +505,13 @@
   // base: "full"     = cut at the equator (canonical 26-hub 2V dome, already flat)
   //       "shoulder" = cut at the zig-zag ring higher up, flattened onto one plane
   //       crown = plan-radius multiplier on the upper pentagon (1 = true sphere)
-  var MODE = { base: "full", crown: 1 };
+  //       stretch = X-axis multiplier making the footprint oblong (1 = round)
+  var MODE = { base: "full", crown: 1, stretch: 1 };
 
   var els = {
-    rad: document.getElementById("rad"),
-    stockLen: document.getElementById("stockLen"),
+    diaShort: document.getElementById("diaShort"),
+    diaLong: document.getElementById("diaLong"),
     hubGap: document.getElementById("hubGap"),
-    waste: document.getElementById("waste"),
     height: document.getElementById("height"),
     cutBody: document.getElementById("cutBody"),
     totQty: document.getElementById("totQty"),
@@ -446,8 +519,6 @@
     tileHubs: document.getElementById("tileHubs"),
     tileHeight: document.getElementById("tileHeight"),
     pilesNote: document.getElementById("pilesNote"),
-    polesToBuy: document.getElementById("polesToBuy"),
-    polesDetail: document.getElementById("polesDetail"),
     ratioNote: document.getElementById("ratioNote"),
     sheetScale: document.getElementById("sheetScale"),
     elev: document.getElementById("elev"),
@@ -459,18 +530,62 @@
     spinBtn: document.getElementById("spinBtn"),
     colophonMode: document.getElementById("colophonMode"),
     crown: document.getElementById("crown"),
-    crownOut: document.getElementById("crownOut")
+    crownOut: document.getElementById("crownOut"),
+    kerf: document.getElementById("kerf"),
+    stockRows: document.getElementById("stockRows"),
+    addStock: document.getElementById("addStock"),
+    stockCount: document.getElementById("stockCount"),
+    planRows: document.getElementById("planRows"),
+    planNote: document.getElementById("planNote"),
+    tilePoles: document.getElementById("tilePoles"),
+    tileWaste: document.getElementById("tileWaste")
   };
 
   // Metric throughout: metres for dome and stock dimensions, millimetres for the
   // hub take-off (the one figure you set on a saw stop).
   var unit = "m";
-  function unitLabel() { return "m"; }
+  // Millimetres everywhere in the UI. Geometry is computed in metres internally;
+  // mm() converts and rounds for display.
+  function unitLabel() { return "mm"; }
   function smallUnit() { return "mm"; }
+  function mm(v) { return Math.round(v * 1000).toLocaleString(); }
   function small2big() { return 1000; }   // mm per m
 
-  ["rad", "stockLen", "hubGap", "waste"].forEach(function (id) {
+  ["diaShort", "diaLong", "hubGap", "kerf"].forEach(function (id) {
     els[id].addEventListener("input", recalc);
+  });
+
+  els.stockRows.addEventListener("input", function (ev) {
+    var t = ev.target;
+    if (!t.dataset || t.dataset.i === undefined) return;
+    var s = stock[+t.dataset.i];
+    if (!s) return;
+    if (t.dataset.f === "len") s.len = parseFloat(t.value);
+    else if (t.dataset.f === "qty") {
+      var v = t.value.trim();
+      s.qty = v === "" ? null : Math.max(0, parseInt(v, 10) || 0);
+    }
+    recalc();
+  });
+
+  els.stockRows.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-f='del']");
+    if (!b) return;
+    if (stock.length <= 1) return;         // always keep at least one length
+    stock.splice(+b.dataset.i, 1);
+    renderStock();
+    recalc();
+  });
+
+  els.addStock.addEventListener("click", function () {
+    if (stock.length >= MAX_STOCK) return;
+    var last = stock[stock.length - 1];
+    stock.push({ len: last ? last.len : 2.4, qty: null });
+    renderStock();
+    recalc();
+    // focus the length field of the row just added
+    var inputs = els.stockRows.querySelectorAll("input[data-f='len']");
+    if (inputs.length) inputs[inputs.length - 1].select();
   });
 
   els.crown.addEventListener("input", function () {
@@ -500,6 +615,123 @@
     });
   }
 
+  // ---------- stock inventory ----------
+  // Stock lengths are entered and shown in millimetres, like the rest of the
+  // workshop figures; geometry is computed in metres, so convert at the edges.
+  var MAX_STOCK = 20;
+  var stock = [
+    { len: 2400, qty: null },
+    { len: 3000, qty: null }
+  ];
+
+  function renderStock() {
+    els.stockRows.innerHTML = stock.map(function (s, i) {
+      return '<div class="stock-row">' +
+        '<input type="number" min="100" step="50" value="' + s.len + '" data-i="' + i + '" data-f="len" aria-label="Stock length ' + (i + 1) + ' in millimetres" />' +
+        '<input type="number" min="0" step="1" value="' + (s.qty == null ? "" : s.qty) + '" data-i="' + i + '" data-f="qty" placeholder="∞" aria-label="Quantity available of length ' + (i + 1) + '" />' +
+        '<button type="button" data-i="' + i + '" data-f="del" aria-label="Remove stock length ' + (i + 1) + '" title="Remove">&times;</button>' +
+        '</div>';
+    }).join("");
+    els.stockCount.textContent = stock.length + " of " + MAX_STOCK + " lengths";
+    els.addStock.disabled = stock.length >= MAX_STOCK;
+    els.addStock.style.opacity = stock.length >= MAX_STOCK ? 0.4 : 1;
+  }
+
+  // ---------- cutting-stock optimiser ----------
+  // Pieces are cut from poles chosen out of the stock list. This is bin packing
+  // with variable bin sizes and optional per-size caps, which is NP-hard, so we
+  // use a good constructive heuristic rather than an exact solve:
+  //
+  //   1. Sort pieces longest-first (first-fit-decreasing does well on offcuts).
+  //   2. For each piece, prefer an already-open pole that still has room, taking
+  //      the one that ends up with the LEAST leftover — best-fit, so part-used
+  //      poles get finished off instead of every pole being opened at once.
+  //   3. If none fits, open the smallest stock length that can hold the piece and
+  //      is still available. Smallest-that-fits avoids cutting a short strut from
+  //      a long pole while long struts still need one.
+  //
+  // Kerf is charged between pieces on the same pole (n pieces -> n-1 cuts).
+  //
+  // Step 3's "which stock length to open" has no single right answer — opening the
+  // smallest pole that fits minimises immediate waste but can strand long struts,
+  // while always opening the longest wastes stock on a short job. So we run the
+  // whole pack once per candidate preference and keep whichever plan buys the
+  // least total stock (ties broken by fewer poles). With <=20 lengths this is a
+  // handful of passes over 65 pieces — instant, and much better than one guess.
+  function packOnce(pieces, stockList, kerf, preferIdx) {
+    var avail = stockList.map(function (s) {
+      return { len: s.len, left: (s.qty == null ? Infinity : s.qty) };
+    }).filter(function (s) { return isFinite(s.len) && s.len > 0 && s.left > 0; })
+      .sort(function (a, b) { return a.len - b.len; });
+
+    if (!avail.length) return null;
+
+    var longestStock = avail[avail.length - 1].len;
+    var queue = pieces.slice().sort(function (a, b) { return b.len - a.len; });
+    var bins = [], unplaced = [];
+
+    queue.forEach(function (piece) {
+      if (piece.len > longestStock + 1e-9) { unplaced.push(piece); return; }
+
+      // best-fit into an already-open pole: least leftover wins, so part-used
+      // poles get finished instead of opening a fresh one for every piece
+      var best = null, bestLeft = Infinity;
+      bins.forEach(function (b) {
+        var need = piece.len + (b.pieces.length ? kerf : 0);
+        var left = b.cap - b.used - need;
+        if (left >= -1e-9 && left < bestLeft) { best = b; bestLeft = left; }
+      });
+      if (best) {
+        best.used += piece.len + (best.pieces.length ? kerf : 0);
+        best.pieces.push(piece);
+        return;
+      }
+
+      // open a new pole: try the preferred length first, else smallest that fits
+      var pick = null;
+      if (preferIdx != null && avail[preferIdx] &&
+          avail[preferIdx].left > 0 && avail[preferIdx].len >= piece.len - 1e-9) {
+        pick = avail[preferIdx];
+      } else {
+        for (var i = 0; i < avail.length; i++) {
+          if (avail[i].left > 0 && avail[i].len >= piece.len - 1e-9) { pick = avail[i]; break; }
+        }
+      }
+      if (!pick) { unplaced.push(piece); return; }
+
+      pick.left--;
+      bins.push({ cap: pick.len, used: piece.len, pieces: [piece] });
+    });
+
+    return { bins: bins, unplaced: unplaced, ok: unplaced.length === 0 };
+  }
+
+  function packPieces(pieces, stockList, kerf) {
+    var usable = stockList.filter(function (s) {
+      return isFinite(s.len) && s.len > 0 && (s.qty == null || s.qty > 0);
+    });
+    if (!usable.length || !pieces.length) {
+      return { bins: [], unplaced: pieces.slice(), ok: !pieces.length };
+    }
+
+    var best = null;
+    for (var p = -1; p < usable.length; p++) {
+      var r = packOnce(pieces, stockList, kerf, p < 0 ? null : p);
+      if (!r) continue;
+      if (!best) { best = r; continue; }
+      // fewest unplaced first, then least stock bought, then fewest poles
+      var rStock = r.bins.reduce(function (s, b) { return s + b.cap; }, 0);
+      var bStock = best.bins.reduce(function (s, b) { return s + b.cap; }, 0);
+      if (r.unplaced.length < best.unplaced.length ||
+         (r.unplaced.length === best.unplaced.length &&
+           (rStock < bStock - 1e-9 ||
+            (Math.abs(rStock - bStock) < 1e-9 && r.bins.length < best.bins.length)))) {
+        best = r;
+      }
+    }
+    return best || { bins: [], unplaced: pieces.slice(), ok: false };
+  }
+
   var TYPE_META = {
     A: { cls: "a", label: "A", role: "triangle legs" },
     B: { cls: "b", label: "B", role: "pentagon rings" },
@@ -510,37 +742,43 @@
   };
 
   function recalc() {
-    var groundR = parseFloat(els.rad.value);            // big units (m / ft)
-    var stock   = parseFloat(els.stockLen.value);       // big units
-    var takeoff = parseFloat(els.hubGap.value);         // small units, per end
-    var wastePct = parseFloat(els.waste.value);
+    // everything the user types is millimetres; geometry runs in metres
+    var diaShort = parseFloat(els.diaShort.value) / 1000;   // narrow axis
+    var diaLong  = parseFloat(els.diaLong.value) / 1000;    // wide axis
+    var takeoff  = parseFloat(els.hubGap.value);        // millimetres, per end
+    var kerfM    = (parseFloat(els.kerf.value) || 0) / 1000;   // metres per cut
 
-    if (!isFinite(groundR) || groundR <= 0) return;
+    if (!isFinite(diaShort) || diaShort <= 0) return;
+    if (!isFinite(diaLong) || diaLong <= 0) diaLong = diaShort;
 
-    // Sphere radius from the ground radius the user typed. "Ground radius" means
-    // the radius of the ring the dome actually stands on — the base ring — not the
-    // widest point of the whole dome. Equator cut: one radius. Shoulder cut: the
-    // ring alternates between two radii (flattening moves hubs vertically only),
-    // so the input sets its MEAN and both are reported back.
-    var geoUnit = domeGeometry(1, MODE.base, MODE.crown);
+    // Measure the unstretched dome's base-ring footprint, then scale each axis
+    // independently so the two diameters the user typed come out exact. The
+    // dome's plan outline is a decagon, not a circle, so the axis extents differ
+    // even before any stretching — normalising both is what makes the inputs mean
+    // literally what they say.
+    var geoUnit = domeGeometry(1, MODE.base, MODE.crown, 1);
     var unitBaseY = Infinity;
     geoUnit.forEach(function (e) { unitBaseY = Math.min(unitBaseY, e.a[1], e.b[1]); });
-    var unitRadii = {};
+    var extX = 0, extZ = 0;
     geoUnit.forEach(function (e) {
       [e.a, e.b].forEach(function (p) {
         if (Math.abs(p[1] - unitBaseY) < 1e-9) {
-          unitRadii[Math.hypot(p[0], p[2]).toFixed(6)] = 1;
+          extX = Math.max(extX, Math.abs(p[0]));
+          extZ = Math.max(extZ, Math.abs(p[2]));
         }
       });
     });
-    var unitRList = Object.keys(unitRadii).map(parseFloat).sort(function (m, n) { return m - n; });
-    var planR = unitRList.reduce(function (s, v) { return s + v; }, 0) / unitRList.length;
+    if (extX < 1e-9) extX = 1;
+    if (extZ < 1e-9) extZ = 1;
 
-    var R = groundR / planR;                            // sphere radius
-    var D = groundR * 2;
+    // Z carries the short diameter; X is stretched to carry the long one.
+    var R = (diaShort / 2) / extZ;                      // sphere radius
+    var stretch = (diaLong / diaShort) * (extZ / extX);
+    MODE.stretch = stretch;
+    var D = diaShort;
 
     // real geometry at true scale
-    var edges = domeGeometry(R, MODE.base, MODE.crown);
+    var edges = domeGeometry(R, MODE.base, MODE.crown, stretch);
     var yMin = Infinity, yMax = -Infinity;
     edges.forEach(function (e) {
       yMin = Math.min(yMin, e.a[1], e.b[1]);
@@ -583,18 +821,21 @@
       linealTotal += r.lineal;
     });
 
-    // footprint: the base hubs may alternate between two plan radii (shoulder cut)
-    var baseY = yMin, radii = {};
+    // footprint: measure the realised base outline on each axis
+    var baseY = yMin, spanX = 0, spanZ = 0;
     edges.forEach(function (e) {
       [e.a, e.b].forEach(function (p) {
-        if (Math.abs(p[1] - baseY) < 1e-9) radii[Math.hypot(p[0], p[2]).toFixed(4)] = 1;
+        if (Math.abs(p[1] - baseY) < 1e-9) {
+          spanX = Math.max(spanX, Math.abs(p[0]));
+          spanZ = Math.max(spanZ, Math.abs(p[2]));
+        }
       });
     });
-    var rList = Object.keys(radii).map(parseFloat).sort(function (m, n) { return m - n; });
-    els.height.textContent = rList.length > 1
-      ? "⌀ " + fmt(rList[0] * 2, 2) + "–" + fmt(rList[rList.length - 1] * 2, 2) + " · h " + fmt(height, 2) + " " + unitLabel()
-      : "⌀ " + fmt(D, 2) + " · h " + fmt(height, 2) + " " + unitLabel();
-    els.tileHeight.innerHTML = fmt(height, 2) + ' <small>' + unitLabel() + '</small>';
+    var oblong = Math.abs(spanX - spanZ) > 1e-4;
+    els.height.textContent = (oblong
+      ? mm(spanZ * 2) + " × " + mm(spanX * 2)
+      : "⌀ " + mm(spanZ * 2)) + " · h " + mm(height) + " mm";
+    els.tileHeight.innerHTML = mm(height) + ' <small>mm</small>';
 
     els.cutBody.innerHTML = rows.map(function (r) {
       var bad = r.cut <= 0;
@@ -602,14 +843,14 @@
       return '<tr>' +
         '<td><span class="strut-tag"><span class="dot ' + meta.cls + '"></span>' + r.tag + '</span></td>' +
         '<td>' + r.qty + '</td>' +
-        '<td>' + fmt(r.chord, 3) + '</td>' +
+        '<td>' + mm(r.chord) + '</td>' +
         '<td' + (bad ? ' style="color:var(--critical)"' : '') + '>' +
-          (bad ? 'take-off too big' : fmt(r.cut, 3)) + '</td>' +
-        '<td>' + fmt(r.lineal, 2) + '</td>' +
+          (bad ? 'take-off too big' : mm(r.cut)) + '</td>' +
+        '<td>' + mm(r.lineal) + '</td>' +
         '</tr>';
     }).join("");
 
-    els.cutCaption.textContent = "Cut list — " + totalQty + " struts, all lengths in " + unitLabel();
+    els.cutCaption.textContent = "Cut list — " + totalQty + " struts, all lengths in mm";
 
     // legend under the model mirrors the cut list
     var byType = {};
@@ -620,7 +861,7 @@
           t + ' · ' + byType[t] + '</span>';
       }).join("");
     els.totQty.textContent = totalQty;
-    els.totLineal.textContent = fmt(linealTotal, 2);
+    els.totLineal.textContent = mm(linealTotal);
 
     // hub count = unique vertices
     var vset = {};
@@ -650,26 +891,99 @@
       ? "Half sphere. Base ring is naturally flat — two strut lengths only."
       : "Shallower. Zig-zag ring forced level, adding C / D lengths.";
 
-    // poles to buy: per-type yield from one stock length, floored by lineal+waste
-    var withWaste = linealTotal * (1 + (isFinite(wastePct) ? wastePct : 0) / 100);
-    var polesByLength = stock > 0 ? Math.ceil(withWaste / stock) : Infinity;
-
-    var polesByYield = 0, yieldOk = true, detail = [];
+    // ---- cutting plan ----
+    var pieces = [];
     rows.forEach(function (r) {
-      var per = r.cut > 0 ? Math.floor(stock / r.cut) : 0;
-      if (per < 1) { yieldOk = false; return; }
-      var n = Math.ceil(r.qty / per);
-      polesByYield += n;
-      detail.push(n + "×" + r.tag);
+      for (var i = 0; i < r.qty; i++) pieces.push({ len: r.cut, tag: r.tag, type: r.type });
     });
 
-    var poles = yieldOk ? Math.max(polesByLength, polesByYield) : polesByLength;
-    els.polesToBuy.firstChild.nodeValue = isFinite(poles) ? poles + " " : "— ";
-    els.polesDetail.textContent = yieldOk
-      ? "× " + fmt(stock, 2) + " " + unitLabel() + "  ·  " + detail.join(" + ")
-      : "× " + fmt(stock, 2) + " " + unitLabel() + " — a pole is shorter than one strut";
+    // stock is held in mm; the packer works in metres alongside the geometry
+    var stockM = stock.map(function (s) {
+      return { len: (parseFloat(s.len) || 0) / 1000, qty: s.qty };
+    });
+    var plan = packPieces(pieces, stockM, kerfM);
+    renderPlan(plan, linealTotal);
 
     drawElevation(R);
+  }
+
+  function renderPlan(plan, linealTotal) {
+    var bins = plan.bins;
+    if (!bins.length) {
+      els.planRows.innerHTML = "";
+      els.tilePoles.innerHTML = "—";
+      els.tileWaste.innerHTML = "—";
+      els.planNote.innerHTML = plan.unplaced.length
+        ? "<b style='color:var(--critical)'>Nothing fits.</b> Every stock length is shorter than the " +
+          "shortest strut, or you have no stock listed."
+        : "Add a stock length to see the cutting plan.";
+      return;
+    }
+
+    // group identical poles (same capacity + same multiset of pieces) so the plan
+    // reads as "6 × this pattern" rather than six identical rows
+    var patterns = {};
+    bins.forEach(function (b) {
+      var sig = b.cap.toFixed(4) + "|" + b.pieces.map(function (p) { return p.tag; }).sort().join(",");
+      if (!patterns[sig]) patterns[sig] = { cap: b.cap, pieces: b.pieces, count: 0 };
+      patterns[sig].count++;
+    });
+    var plist = Object.keys(patterns).map(function (k) { return patterns[k]; });
+    plist.sort(function (m, n) { return n.cap - m.cap || n.count - m.count; });
+
+    var typeCol = {
+      A: "var(--strut-a)", B: "var(--strut-b)", C: "var(--strut-c)",
+      D: "var(--strut-d)", E: "var(--strut-e)", F: "var(--strut-f)"
+    };
+
+    els.planRows.innerHTML = plist.map(function (p) {
+      var used = p.pieces.reduce(function (s, x) { return s + x.len; }, 0);
+      var drop = p.cap - used - Math.max(0, p.pieces.length - 1) * (parseFloat(els.kerf.value) / 1000 || 0);
+      var segs = p.pieces.map(function (x) {
+        var pct = (x.len / p.cap) * 100;
+        return '<span class="plan-piece" style="width:' + pct.toFixed(2) + '%;background:' +
+          (typeCol[x.type] || "var(--strut-a)") + '" title="' + x.tag + " — " + Math.round(x.len * 1000) + ' mm">' +
+          (pct > 11 ? x.tag : "") + '</span>';
+      }).join("");
+      var dropPct = Math.max(0, (drop / p.cap) * 100);
+      if (dropPct > 0.4) {
+        segs += '<span class="plan-piece plan-drop" style="width:' + dropPct.toFixed(2) +
+          '%" title="offcut ' + Math.round(drop * 1000) + ' mm"></span>';
+      }
+      return '<div class="plan-row">' +
+        '<span class="plan-label">' + p.count + ' × ' + Math.round(p.cap * 1000) + '</span>' +
+        '<span class="plan-bar">' + segs + '</span>' +
+        '</div>';
+    }).join("");
+
+    var totalPoles = bins.length;
+    var totalStockLen = bins.reduce(function (s, b) { return s + b.cap; }, 0);
+    // measure waste against what was actually placed, so a partial plan (some
+    // struts unplaced) doesn't report a negative offcut figure
+    var placedLen = bins.reduce(function (s, b) {
+      return s + b.pieces.reduce(function (t, p) { return t + p.len; }, 0);
+    }, 0);
+    var wasteLen = Math.max(0, totalStockLen - placedLen);
+    var wastePct = totalStockLen > 0 ? (wasteLen / totalStockLen) * 100 : 0;
+
+    // count poles per length for the tile subtitle
+    var perLen = {};
+    bins.forEach(function (b) { perLen[b.cap.toFixed(2)] = (perLen[b.cap.toFixed(2)] || 0) + 1; });
+    var mix = Object.keys(perLen).sort(function (m, n) { return parseFloat(n) - parseFloat(m); })
+      .map(function (k) { return perLen[k] + "×" + Math.round(parseFloat(k) * 1000); }).join(" + ");
+
+    els.tilePoles.innerHTML = totalPoles + ' <small>' + mix + ' mm</small>';
+    els.tileWaste.innerHTML = Math.round(wasteLen * 1000).toLocaleString() +
+      ' <small>mm · ' + Math.round(wastePct) + '%</small>';
+
+    els.planNote.innerHTML = plan.unplaced.length
+      ? "<b style='color:var(--critical)'>" + plan.unplaced.length + " strut" +
+        (plan.unplaced.length > 1 ? "s" : "") + " won't fit</b> — the longest needs " +
+        Math.round(Math.max.apply(null, plan.unplaced.map(function (p) { return p.len; })) * 1000) +
+        " mm and your longest pole is shorter, or you've run out. Add a longer length or raise a quantity."
+      : "Each bar is one pole, cut left to right; hatching is the offcut. " +
+        Math.round(totalStockLen * 1000).toLocaleString() + " mm of stock for " +
+        Math.round(linealTotal * 1000).toLocaleString() + " mm of strut.";
   }
 
   // ---------- 2V dome geometry ----------
@@ -683,7 +997,7 @@
   // moved vertex are re-measured: the zig-zag base chords become type C, and the
   // slanted struts feeding the raised hubs become type D. All upper struts stay
   // exactly A / B.
-  function domeGeometry(R, flatBase, crownScale) {
+  function domeGeometry(R, flatBase, crownScale, stretchScale) {
     var lat = Math.atan(0.5);
     var IV = [[0, 1, 0]];
     var i;
@@ -752,6 +1066,8 @@
     var Y_CROWN = 0.85065081;                 // the upper pentagon ring
     var crown = (typeof crownScale === "number" && isFinite(crownScale)) ? crownScale : 1;
     var crownOn = Math.abs(crown - 1) > 1e-6;
+    var stretch = (typeof stretchScale === "number" && isFinite(stretchScale)) ? stretchScale : 1;
+    var stretchOn = Math.abs(stretch - 1) > 1e-6;
 
     var pos = {};
     Object.keys(verts).forEach(function (k) {
@@ -766,6 +1082,11 @@
       // Height is untouched, so the crown flattens into a wider, lower-pitched cap.
       var onCrown = !onZig && Math.abs(p[1] - Y_CROWN) < 1e-3;
       if (onCrown && crownOn) { x *= crown; z *= crown; }
+
+      // Oblong: stretch the whole dome along X only. Applied last, so it acts on
+      // the finished shape. This breaks the 5-fold symmetry, so struts that were
+      // one length fan out into several — the cut list splits them by measurement.
+      if (stretchOn) x *= stretch;
 
       pos[k] = {
         p: [x * R, y * R, z * R],
@@ -789,6 +1110,9 @@
         // re-measured because the crown ring was pushed out
         type = (va.crown && vb.crown) ? "E" : "F";
       } else {
+        // Nearest of the two chord factors. Under stretch these no longer land on
+        // exact A/B, so a type fans out into several lengths — the cut list groups
+        // by measurement and suffixes them A1, A2, …
         type = Math.abs(L - CFa) <= Math.abs(L - CFb) ? "A" : "B";
       }
       out.push({ a: pa.slice(), b: pb.slice(), type: type, len: L });
@@ -796,7 +1120,7 @@
     return out;
   }
 
-  function domeVertices(R) { return domeGeometry(R, MODE.base, MODE.crown); }
+  function domeVertices(R) { return domeGeometry(R, MODE.base, MODE.crown, MODE.stretch); }
 
   // ---------- 3D canvas renderer ----------
   var cv = els.elev;
@@ -823,12 +1147,24 @@
       lowest = Math.min(lowest, e.a[1], e.b[1]);
       planR = Math.max(planR, Math.hypot(e.a[0], e.a[2]), Math.hypot(e.b[0], e.b[2]));
     });
+    // per-axis extent of the base ring, so an oblong dome gets an oblong shadow
+    var spanX = 0, spanZ = 0;
+    edges.forEach(function (e) {
+      [e.a, e.b].forEach(function (p) {
+        if (Math.abs(p[1] - lowest) < 1e-9) {
+          spanX = Math.max(spanX, Math.abs(p[0]));
+          spanZ = Math.max(spanZ, Math.abs(p[2]));
+        }
+      });
+    });
     model = {
       edges: edges,
       nodes: Object.keys(nmap).map(function (k) { return nmap[k]; }),
       radius: R,
       groundY: lowest,
-      planR: planR
+      planR: planR,
+      spanX: spanX || planR,
+      spanZ: spanZ || planR
     };
   }
 
@@ -865,7 +1201,7 @@
     var gpts = [];
     for (var a = 0; a < 40; a++) {
       var t = a / 40 * Math.PI * 2;
-      gpts.push(project([Math.cos(t) * model.planR, model.groundY, Math.sin(t) * model.planR]));
+      gpts.push(project([Math.cos(t) * model.spanX, model.groundY, Math.sin(t) * model.spanZ]));
     }
     ctx.beginPath();
     gpts.forEach(function (g, i) { i ? ctx.lineTo(g.x, g.y) : ctx.moveTo(g.x, g.y); });
@@ -928,7 +1264,9 @@
   function drawElevation(R) {
     buildModel(R);
     render();
-    els.sheetScale.textContent = "⌀ " + fmt(model.planR * 2, 2) + " " + unitLabel();
+    els.sheetScale.textContent = Math.abs(model.spanX - model.spanZ) > 1e-4
+      ? mm(model.spanZ * 2) + " × " + mm(model.spanX * 2) + " mm"
+      : "⌀ " + mm(model.spanZ * 2) + " mm";
   }
 
   // orbit + spin
@@ -1004,6 +1342,7 @@
     try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
   });
 
+  renderStock();
   recalc();
 })();
 </script>
