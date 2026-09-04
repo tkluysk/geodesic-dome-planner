@@ -188,6 +188,11 @@
     font-family: var(--f-mono); font-size: .7rem; color: var(--text-dim);
     letter-spacing: .06em; margin-left: 3px;
   }
+  .linkbtn {
+    background: none; border: none; padding: 0; cursor: pointer;
+    font: inherit; color: var(--strut-b); text-decoration: underline;
+  }
+  .linkbtn:focus-visible { outline: 2px solid var(--strut-b); outline-offset: 2px; }
   .field .hint { grid-column: 1 / -1; font-size: .78rem; color: var(--text-dim); margin-top: -2px; }
   .field input[type="number"], .field select {
     font-family: var(--f-mono); font-size: .95rem;
@@ -408,9 +413,14 @@
           <p class="hint" id="crownHint">Pushes the five crown hubs outward, flattening the cap. 100% is the true sphere.</p>
         </div>
         <div class="field">
-          <label>Footprint &amp; height <span class="unit">mm</span></label>
+          <label for="height">Apex height <span class="unit">mm</span></label>
+          <input type="number" id="heightIn" min="200" step="50" value="1700" />
+          <p class="hint" id="heightHint">Floor to the top hub. Raising or lowering it stretches the dome vertically.</p>
+        </div>
+        <div class="field">
+          <label>Resulting size <span class="unit">mm</span></label>
           <output id="height" style="font-family:var(--f-mono)">—</output>
-          <p class="hint">Diameter across the ground ring, then apex height above it.</p>
+          <p class="hint">Footprint across each axis, then the apex height.</p>
         </div>
       </fieldset>
 
@@ -506,7 +516,8 @@
   //       "shoulder" = cut at the zig-zag ring higher up, flattened onto one plane
   //       crown = plan-radius multiplier on the upper pentagon (1 = true sphere)
   //       stretch = X-axis multiplier making the footprint oblong (1 = round)
-  var MODE = { base: "full", crown: 1, stretch: 1 };
+  //       rise = Y multiplier about the floor plane, set from the height input
+  var MODE = { base: "full", crown: 1, stretch: 1, rise: 1 };
 
   var els = {
     diaShort: document.getElementById("diaShort"),
@@ -532,6 +543,8 @@
     crown: document.getElementById("crown"),
     crownOut: document.getElementById("crownOut"),
     kerf: document.getElementById("kerf"),
+    heightIn: document.getElementById("heightIn"),
+    heightHint: document.getElementById("heightHint"),
     stockRows: document.getElementById("stockRows"),
     addStock: document.getElementById("addStock"),
     stockCount: document.getElementById("stockCount"),
@@ -551,8 +564,21 @@
   function mm(v) { return Math.round(v * 1000).toLocaleString(); }
   function small2big() { return 1000; }   // mm per m
 
+  var heightPinned = false;  // true once the user types their own height
+
   ["diaShort", "diaLong", "hubGap", "kerf"].forEach(function (id) {
     els[id].addEventListener("input", recalc);
+  });
+
+  els.heightIn.addEventListener("input", function () {
+    heightPinned = true;
+    recalc();
+  });
+
+  els.heightHint.addEventListener("click", function (ev) {
+    if (!ev.target.closest("#resetHeight")) return;
+    heightPinned = false;
+    recalc();
   });
 
   els.stockRows.addEventListener("input", function (ev) {
@@ -777,8 +803,29 @@
     MODE.stretch = stretch;
     var D = diaShort;
 
+
+    // Natural height at this scale, before any vertical stretch. The height input
+    // is then a target: rise scales Y about the floor plane to hit it exactly.
+    var natural = domeGeometry(R, MODE.base, MODE.crown, stretch, 1);
+    var nLo = Infinity, nHi = -Infinity;
+    natural.forEach(function (e) {
+      nLo = Math.min(nLo, e.a[1], e.b[1]);
+      nHi = Math.max(nHi, e.a[1], e.b[1]);
+    });
+    var naturalH = nHi - nLo;
+
+    // Until the height field is touched it tracks the natural height, so changing
+    // a diameter or the cut doesn't silently leave the dome stretched to an old
+    // figure. Once edited it holds, and the dome stretches to match.
+    if (!heightPinned) {
+      els.heightIn.value = Math.round(naturalH * 1000);
+    }
+    var wantH = parseFloat(els.heightIn.value) / 1000;
+    var rise = (isFinite(wantH) && wantH > 0 && naturalH > 1e-9) ? wantH / naturalH : 1;
+    MODE.rise = rise;
+
     // real geometry at true scale
-    var edges = domeGeometry(R, MODE.base, MODE.crown, stretch);
+    var edges = domeGeometry(R, MODE.base, MODE.crown, stretch, rise);
     var yMin = Infinity, yMax = -Infinity;
     edges.forEach(function (e) {
       yMin = Math.min(yMin, e.a[1], e.b[1]);
@@ -836,6 +883,12 @@
       ? mm(spanZ * 2) + " × " + mm(spanX * 2)
       : "⌀ " + mm(spanZ * 2)) + " · h " + mm(height) + " mm";
     els.tileHeight.innerHTML = mm(height) + ' <small>mm</small>';
+
+    var risePct = naturalH > 1e-9 ? (height / naturalH) * 100 : 100;
+    els.heightHint.innerHTML = Math.abs(risePct - 100) < 0.5
+      ? "Floor to the top hub — the dome's natural height, so struts keep their true geodesic lengths."
+      : "Natural height is " + mm(naturalH) + " mm; you're at " + Math.round(risePct) +
+        "%, so struts are re-measured to suit. <button type=\"button\" id=\"resetHeight\" class=\"linkbtn\">Reset</button>";
 
     els.cutBody.innerHTML = rows.map(function (r) {
       var bad = r.cut <= 0;
@@ -997,7 +1050,7 @@
   // moved vertex are re-measured: the zig-zag base chords become type C, and the
   // slanted struts feeding the raised hubs become type D. All upper struts stay
   // exactly A / B.
-  function domeGeometry(R, flatBase, crownScale, stretchScale) {
+  function domeGeometry(R, flatBase, crownScale, stretchScale, riseScale) {
     var lat = Math.atan(0.5);
     var IV = [[0, 1, 0]];
     var i;
@@ -1068,6 +1121,8 @@
     var crownOn = Math.abs(crown - 1) > 1e-6;
     var stretch = (typeof stretchScale === "number" && isFinite(stretchScale)) ? stretchScale : 1;
     var stretchOn = Math.abs(stretch - 1) > 1e-6;
+    var rise = (typeof riseScale === "number" && isFinite(riseScale)) ? riseScale : 1;
+    var riseOn = Math.abs(rise - 1) > 1e-6;
 
     var pos = {};
     Object.keys(verts).forEach(function (k) {
@@ -1087,6 +1142,10 @@
       // the finished shape. This breaks the 5-fold symmetry, so struts that were
       // one length fan out into several — the cut list splits them by measurement.
       if (stretchOn) x *= stretch;
+
+      // Height: scale Y about the floor plane, so the base ring stays put and
+      // only the dome's pitch changes.
+      if (riseOn) y = yFloor + (y - yFloor) * rise;
 
       pos[k] = {
         p: [x * R, y * R, z * R],
@@ -1120,7 +1179,9 @@
     return out;
   }
 
-  function domeVertices(R) { return domeGeometry(R, MODE.base, MODE.crown, MODE.stretch); }
+  function domeVertices(R) {
+    return domeGeometry(R, MODE.base, MODE.crown, MODE.stretch, MODE.rise);
+  }
 
   // ---------- 3D canvas renderer ----------
   var cv = els.elev;
