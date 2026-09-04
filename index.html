@@ -220,6 +220,17 @@
   .filebar { display: flex; flex-wrap: wrap; gap: 8px; }
   .filebar button { flex: 0 0 auto; }
 
+  table.cutlist tbody tr { cursor: default; }
+  table.cutlist tbody tr:hover,
+  table.cutlist tbody tr.lit {
+    background: color-mix(in srgb, var(--critical) 14%, transparent);
+  }
+  table.cutlist tbody tr.lit td:first-child { box-shadow: inset 2px 0 0 var(--critical); }
+
+  .spread {
+    font-size: .72em; color: var(--text-dim); margin-left: 4px;
+  }
+
   .linkbtn {
     background: none; border: none; padding: 0; cursor: pointer;
     font: inherit; color: var(--strut-b); text-decoration: underline;
@@ -407,7 +418,12 @@
       <div class="drawing-foot">
         <span id="legend" style="display:flex;flex-wrap:wrap;gap:6px 20px"></span>
         <span class="legend-item"><span class="swatch dashed"></span> far side</span>
-        <button type="button" id="spinBtn" class="theme-toggle" style="margin-left:auto">Pause spin</button>
+        <span class="seg" id="labelSeg" role="group" aria-label="Edge labels" style="margin-left:auto">
+          <button type="button" data-labels="one" aria-pressed="true">1 per length</button>
+          <button type="button" data-labels="all" aria-pressed="false">All</button>
+          <button type="button" data-labels="off" aria-pressed="false">None</button>
+        </span>
+        <button type="button" id="spinBtn" class="theme-toggle">Pause spin</button>
       </div>
       <div class="vertex-panel" id="vertexPanel">
         <div class="vp-empty" id="vpEmpty">Click a hub in the model to nudge it.</div>
@@ -486,6 +502,11 @@
           <label for="hubGap">Take off each end <span class="unit">mm</span></label>
           <input type="number" id="hubGap" min="0" step="1" value="43" />
           <p class="hint">Millimetres removed from <b>both</b> ends of every strut so it seats in the hub. Cut length = chord − 2 × this.</p>
+        </div>
+        <div class="field">
+          <label for="tol">Merge lengths within <span class="unit">mm</span></label>
+          <input type="number" id="tol" min="0" max="50" step="1" value="2" />
+          <p class="hint">Struts closer than this are treated as one cut, at the group's mean length. Stretching a dome throws off millimetre variations no one would cut separately.</p>
         </div>
         <div class="field">
           <label for="kerf">Saw kerf <span class="unit">mm</span></label>
@@ -619,6 +640,8 @@
     crown: document.getElementById("crown"),
     crownOut: document.getElementById("crownOut"),
     kerf: document.getElementById("kerf"),
+    tol: document.getElementById("tol"),
+    labelSeg: document.getElementById("labelSeg"),
     heightPct: document.getElementById("heightPct"),
     heightPctOut: document.getElementById("heightPctOut"),
     heightHint: document.getElementById("heightHint"),
@@ -656,7 +679,7 @@
   function mm(v) { return Math.round(v * 1000).toLocaleString(); }
   function small2big() { return 1000; }   // mm per m
 
-  ["diaShort", "diaLong", "hubGap", "kerf"].forEach(function (id) {
+  ["diaShort", "diaLong", "hubGap", "kerf", "tol"].forEach(function (id) {
     els[id].addEventListener("input", recalc);
   });
 
@@ -869,29 +892,32 @@
     if (!isFinite(diaShort) || diaShort <= 0) return;
     if (!isFinite(diaLong) || diaLong <= 0) diaLong = diaShort;
 
-    // Measure the unstretched dome's base-ring footprint, then scale each axis
-    // independently so the two diameters the user typed come out exact. The
-    // dome's plan outline is a decagon, not a circle, so the axis extents differ
-    // even before any stretching — normalising both is what makes the inputs mean
-    // literally what they say.
+    // Measure the unstretched dome's base ring, then size it so the diameters the
+    // user typed come out right.
+    //
+    // The base is a decagon, not a circle: one axis passes through a vertex, the
+    // other through the middle of a flat, so its extents differ by ~5% before any
+    // stretching. Forcing those two extents to be equal would squash a round dome
+    // and shatter its two chord lengths into dozens, so the ratio is measured
+    // against a common reference (the circumscribed radius) instead. Equal
+    // diameters therefore give a genuinely round dome with exactly two struts.
     var geoUnit = domeGeometry(1, MODE.base, MODE.crown, 1);
     var unitBaseY = Infinity;
     geoUnit.forEach(function (e) { unitBaseY = Math.min(unitBaseY, e.a[1], e.b[1]); });
-    var extX = 0, extZ = 0;
+    var circumR = 0;
     geoUnit.forEach(function (e) {
       [e.a, e.b].forEach(function (p) {
         if (Math.abs(p[1] - unitBaseY) < 1e-9) {
-          extX = Math.max(extX, Math.abs(p[0]));
-          extZ = Math.max(extZ, Math.abs(p[2]));
+          circumR = Math.max(circumR, Math.hypot(p[0], p[2]));
         }
       });
     });
-    if (extX < 1e-9) extX = 1;
-    if (extZ < 1e-9) extZ = 1;
+    if (circumR < 1e-9) circumR = 1;
 
-    // Z carries the short diameter; X is stretched to carry the long one.
-    var R = (diaShort / 2) / extZ;                      // sphere radius
-    var stretch = (diaLong / diaShort) * (extZ / extX);
+    // Short diameter sets the scale; the long one only adds stretch on top, so
+    // diaLong === diaShort leaves the dome perfectly round.
+    var R = (diaShort / 2) / circumR;                   // sphere radius
+    var stretch = diaLong / diaShort;
     MODE.stretch = stretch;
     var D = diaShort;
 
@@ -918,14 +944,35 @@
     });
     var height = yMax - yMin;
 
-    // group struts by type, rounding length to 0.1 mm so identical cuts merge
-    var groups = {};
+    // Group struts by type, then merge lengths within the tolerance. Stretching a
+    // dome yields lengths differing by a millimetre or less, which no one is going
+    // to cut differently, so clustering them keeps the list to real distinct cuts.
+    // Each cluster reports its mean length, so the error is split either way.
+    var tolM = (parseFloat(els.tol.value) || 0) / 1000;
+    var byType = {};
     edges.forEach(function (e) {
-      var k = e.type + "@" + Math.round(e.len * 10000);
-      if (!groups[k]) groups[k] = { type: e.type, chord: e.len, qty: 0 };
-      groups[k].qty++;
+      (byType[e.type] = byType[e.type] || []).push(e.len);
     });
-    var rows = Object.keys(groups).map(function (k) { return groups[k]; });
+    var rows = [];
+    Object.keys(byType).forEach(function (t) {
+      var lens = byType[t].slice().sort(function (a, b) { return a - b; });
+      var cluster = [lens[0]];
+      var out = [];
+      function flush() {
+        var sum = cluster.reduce(function (a, b) { return a + b; }, 0);
+        out.push({
+          type: t, qty: cluster.length, chord: sum / cluster.length,
+          spread: cluster[cluster.length - 1] - cluster[0]
+        });
+      }
+      for (var i = 1; i < lens.length; i++) {
+        // break a cluster when the next length is beyond tolerance of its start
+        if (lens[i] - cluster[0] > tolM + 1e-12) { flush(); cluster = [lens[i]]; }
+        else cluster.push(lens[i]);
+      }
+      flush();
+      out.forEach(function (r) { rows.push(r); });
+    });
     // sort: A, B, C, D then longest first
     var order = { A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6 };
     rows.sort(function (m, n) {
@@ -942,6 +989,25 @@
       } else {
         r.tag = r.type;
       }
+    });
+
+    // stamp every edge with the cut-list row it landed in, so the 3D view can
+    // label it and highlight it in step with the table
+    var bounds = {};
+    rows.forEach(function (r) {
+      (bounds[r.type] = bounds[r.type] || []).push(r);
+    });
+    Object.keys(bounds).forEach(function (t) {
+      bounds[t].sort(function (m, n) { return m.chord - n.chord; });
+    });
+    edges.forEach(function (e) {
+      var list = bounds[e.type] || [];
+      var best = null, bestD = Infinity;
+      list.forEach(function (r) {
+        var d = Math.abs(r.chord - e.len);
+        if (d < bestD) { bestD = d; best = r; }
+      });
+      e.row = best;
     });
 
     var toBig = isFinite(takeoff) ? takeoff / small2big() : 0;   // per end, big units
@@ -979,10 +1045,13 @@
     els.cutBody.innerHTML = rows.map(function (r) {
       var bad = r.cut <= 0;
       var meta = TYPE_META[r.type];
-      return '<tr>' +
+      return '<tr data-tag="' + r.tag + '">' +
         '<td><span class="strut-tag"><span class="dot ' + meta.cls + '"></span>' + r.tag + '</span></td>' +
         '<td>' + r.qty + '</td>' +
-        '<td>' + mm(r.chord) + '</td>' +
+        '<td>' + mm(r.chord) +
+          (r.spread > 1e-6 ? '<span class="spread" title="merged from lengths spanning ' +
+            Math.round(r.spread * 1000) + ' mm">±' + Math.round(r.spread * 500) + '</span>' : '') +
+          '</td>' +
         '<td' + (bad ? ' style="color:var(--critical)"' : '') + '>' +
           (bad ? 'take-off too big' : mm(r.cut)) + '</td>' +
         '<td>' + mm(r.lineal) + '</td>' +
@@ -1311,6 +1380,9 @@
   var model = { edges: [], nodes: [], radius: 1, groundY: 0 };
   var hits = [];        // screen-space hub discs from the last render, for picking
   var LAST = null;      // last computed cut list + summary, for CSV export
+  var edgeHits = [];    // screen-space edge midpoints, for hovering the model
+  var HOVER_TAG = null; // cut-list row currently highlighted, from either direction
+  var LABELS = "one";   // "one" = one tag per length, "all" = every strut, "off"
 
   function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#888";
@@ -1398,7 +1470,10 @@
     // project + depth sort edges (far first)
     var drawn = model.edges.map(function (e) {
       var pa = project(e.a), pb = project(e.b);
-      return { pa: pa, pb: pb, z: (pa.z + pb.z) / 2, type: e.type };
+      return {
+        pa: pa, pb: pb, z: (pa.z + pb.z) / 2, type: e.type,
+        tag: e.row ? e.row.tag : e.type
+      };
     });
     drawn.sort(function (m, n) { return m.z - n.z; });
 
@@ -1412,20 +1487,29 @@
     var far = cssVar("--text-dim");
 
     ctx.lineCap = "round";
+    var hot = cssVar("--critical");
     drawn.forEach(function (d) {
       var frac = zmax > zmin ? (d.z - zmin) / (zmax - zmin) : 1;   // 0 far .. 1 near
       var near = frac > 0.5;
+      var lit = HOVER_TAG && d.tag === HOVER_TAG;
       ctx.beginPath();
       ctx.moveTo(d.pa.x, d.pa.y);
       ctx.lineTo(d.pb.x, d.pb.y);
-      if (near) {
+      if (lit) {
+        // a highlighted length stays fully visible even on the far side, so you
+        // can see every strut of that cut at once
+        ctx.strokeStyle = hot;
+        ctx.globalAlpha = near ? 1 : 0.75;
+        ctx.lineWidth = 6.5 * (0.7 + 0.5 * frac);
+        ctx.setLineDash([]);
+      } else if (near) {
         ctx.strokeStyle = strutCol[d.type] || strutCol.A;
-        ctx.globalAlpha = 0.55 + 0.45 * frac;
+        ctx.globalAlpha = (HOVER_TAG ? 0.22 : 0.55 + 0.45 * frac);
         ctx.lineWidth = (d.type === "A" ? 4.4 : 3.4) * (0.7 + 0.5 * frac);
         ctx.setLineDash([]);
       } else {
         ctx.strokeStyle = far;
-        ctx.globalAlpha = 0.20 + 0.25 * frac;
+        ctx.globalAlpha = (HOVER_TAG ? 0.08 : 0.20 + 0.25 * frac);
         ctx.lineWidth = 2.4;
         ctx.setLineDash([4, 6]);
       }
@@ -1433,6 +1517,45 @@
     });
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
+
+    // Edge labels. Only near-side struts are labelled, and only one label per
+    // cut length per frame unless labels are set to "all" — 65 tags at once is
+    // unreadable, whereas one tag per length reads as a key on the model itself.
+    if (LABELS !== "off") {
+      edgeHits = [];
+      var seenTag = {};
+      ctx.font = '600 15px ui-monospace, "SF Mono", Menlo, monospace';
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      drawn.forEach(function (d) {
+        var frac = zmax > zmin ? (d.z - zmin) / (zmax - zmin) : 1;
+        if (frac <= 0.5 || !d.tag) return;
+        var mx = (d.pa.x + d.pb.x) / 2, my = (d.pa.y + d.pb.y) / 2;
+        edgeHits.push({ x: mx, y: my, tag: d.tag, z: d.z });
+        if (LABELS === "one") {
+          if (seenTag[d.tag]) return;
+          seenTag[d.tag] = 1;
+        }
+        var lit2 = HOVER_TAG && d.tag === HOVER_TAG;
+        if (HOVER_TAG && !lit2 && LABELS === "one") return;
+        var w = ctx.measureText(d.tag).width + 10;
+        ctx.fillStyle = lit2 ? hot : cssVar("--surface");
+        ctx.globalAlpha = lit2 ? 1 : 0.88;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(mx - w / 2, my - 10, w, 20, 4);
+        else ctx.rect(mx - w / 2, my - 10, w, 20);   // older Safari
+        ctx.fill();
+        if (!lit2) {
+          ctx.strokeStyle = strutCol[d.type] || strutCol.A;
+          ctx.lineWidth = 1.5; ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = lit2 ? cssVar("--surface") : cssVar("--text");
+        ctx.fillText(d.tag, mx, my + 0.5);
+      });
+    } else {
+      edgeHits = [];
+    }
 
     // hub dots. Screen positions are cached as we go so a click can hit-test
     // against exactly what was drawn, near hubs taking priority over far ones.
@@ -1551,6 +1674,49 @@
   }
   requestAnimationFrame(tick);
 
+  // ---------- edge labels & cross-highlighting ----------
+  els.labelSeg.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-labels]");
+    if (!b) return;
+    LABELS = b.dataset.labels;
+    els.labelSeg.querySelectorAll("button").forEach(function (x) {
+      x.setAttribute("aria-pressed", String(x.dataset.labels === LABELS));
+    });
+    render();
+  });
+
+  function setHover(tag) {
+    if (HOVER_TAG === tag) return;
+    HOVER_TAG = tag;
+    // mirror the highlight onto the cut-list row
+    els.cutBody.querySelectorAll("tr").forEach(function (tr) {
+      tr.classList.toggle("lit", !!tag && tr.dataset.tag === tag);
+    });
+    render();
+  }
+
+  // model -> list: hovering a strut lights its row
+  cv.addEventListener("mousemove", function (e) {
+    if (view.dragging) return;
+    var rect = cv.getBoundingClientRect();
+    var sx = (e.clientX - rect.left) * (cv.width / rect.width);
+    var sy = (e.clientY - rect.top) * (cv.height / rect.height);
+    var best = null, bestD = 26;      // generous radius: struts are thin targets
+    edgeHits.forEach(function (h) {
+      var d = Math.hypot(sx - h.x, sy - h.y);
+      if (d < bestD) { bestD = d; best = h; }
+    });
+    setHover(best ? best.tag : null);
+  });
+  cv.addEventListener("mouseleave", function () { setHover(null); });
+
+  // list -> model: hovering a row lights every strut of that length
+  els.cutBody.addEventListener("mouseover", function (ev) {
+    var tr = ev.target.closest("tr");
+    if (tr && tr.dataset.tag) setHover(tr.dataset.tag);
+  });
+  els.cutBody.addEventListener("mouseleave", function () { setHover(null); });
+
   // ---------- vertex editor ----------
   // Slider values are millimetres on the real dome; VERTEX_MOVES stores sphere
   // units so an edit keeps its physical size when the dome is resized.
@@ -1612,7 +1778,7 @@
   // deliberately not saved. Wrapped in try/catch throughout: private windows and
   // blocked site data make these throw rather than fail quietly.
   var SETTINGS_KEY = "dome-planner-settings-v1";
-  var SAVE_FIELDS = ["diaShort", "diaLong", "crown", "heightPct", "hubGap", "kerf"];
+  var SAVE_FIELDS = ["diaShort", "diaLong", "crown", "heightPct", "hubGap", "kerf", "tol"];
   var restoring = false;
   // the markup's own values, captured before any restore, so Reset all can
   // return to them without hardcoding the numbers twice
